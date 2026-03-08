@@ -45,6 +45,10 @@ class LocalAIConfig:
     kroko_embedded: bool = False
     kroko_port: int = 6006
 
+    elevenlabs_stt_api_key: str = ""
+    elevenlabs_stt_language: str = "it"
+    elevenlabs_stt_model: str = "scribe_v1"
+
     llm_model_path: str = "/app/models/llm/phi-3-mini-4k-instruct.Q4_K_M.gguf"
     llm_threads: int = 4
     # NOTE: 768 is intentionally small for latency, but it is often too small for
@@ -176,6 +180,9 @@ class LocalAIConfig:
             ),
             kroko_embedded=_parse_bool(os.getenv("KROKO_EMBEDDED", "0")),
             kroko_port=int(os.getenv("KROKO_PORT", "6006")),
+            elevenlabs_stt_api_key=os.getenv("ELEVENLABS_API_KEY", ""),
+            elevenlabs_stt_language=os.getenv("ELEVENLABS_STT_LANGUAGE", "it"),
+            elevenlabs_stt_model=os.getenv("ELEVENLABS_STT_MODEL", "scribe_v1"),
             llm_model_path=os.getenv(
                 "LOCAL_LLM_MODEL_PATH",
                 "/app/models/llm/phi-3-mini-4k-instruct.Q4_K_M.gguf",

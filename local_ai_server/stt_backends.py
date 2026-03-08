@@ -403,6 +403,18 @@ class FasterWhisperSTTBackend:
             
             self._initialized = True
             logging.info("✅ FASTER-WHISPER - Model loaded successfully")
+
+            # Warmup: run a dummy transcription to compile CUDA kernels
+            try:
+                import numpy as np
+                dummy_audio = np.zeros(self.sample_rate * 2, dtype=np.float32)  # 2s silence
+                segments, _ = self.model.transcribe(dummy_audio, language=self.language, beam_size=1, vad_filter=False)
+                for _ in segments:
+                    pass
+                logging.info("✅ FASTER-WHISPER - CUDA warmup completed")
+            except Exception as warmup_exc:
+                logging.warning("⚠️ FASTER-WHISPER - Warmup failed (non-critical): %s", warmup_exc)
+
             return True
             
         except ImportError:
@@ -671,8 +683,8 @@ class WhisperCppSTTBackend:
                 return None
             
             # Transcribe the buffered audio
-            segments = self.model.transcribe(self._audio_buffer)
-            
+            segments = self.model.transcribe(self._audio_buffer, language=self.language)
+
             # Collect all segment texts
             text = " ".join(seg.text.strip() for seg in segments if seg.text)
             
@@ -717,14 +729,14 @@ class WhisperCppSTTBackend:
                 return None
             
             # Transcribe remaining audio
-            segments = self.model.transcribe(self._audio_buffer)
-            
+            segments = self.model.transcribe(self._audio_buffer, language=self.language)
+
             text = " ".join(seg.text.strip() for seg in segments if seg.text)
-            
+
             # Clear buffer
             self._audio_buffer = np.array([], dtype=np.float32)
             self._last_text = ""
-            
+
             if text:
                 # Filter out hallucinations
                 if self._is_hallucination(text):
@@ -752,7 +764,7 @@ class WhisperCppSTTBackend:
         try:
             samples = np.frombuffer(pcm16_audio, dtype=np.int16)
             float_samples = samples.astype(np.float32) / 32768.0
-            segments = self.model.transcribe(float_samples)
+            segments = self.model.transcribe(float_samples, language=self.language)
             text = " ".join(seg.text.strip() for seg in segments if getattr(seg, "text", None))
             text = (text or "").strip()
             if text and self._is_hallucination(text):

@@ -6878,10 +6878,10 @@ class Engine:
             # Pipeline adapters need audio in their queue, not sent to monolithic providers
             pipeline_forced = self._pipeline_forced.get(caller_channel_id)
             logger.debug(
-                "RTP audio routing check",
+                "RTP audio routing",
                 call_id=caller_channel_id,
                 pipeline_forced=pipeline_forced,
-                audio_capture_enabled=session.audio_capture_enabled,
+                audio_capture=session.audio_capture_enabled,
                 has_queue=caller_channel_id in self._pipeline_queues,
             )
             if pipeline_forced:
@@ -9971,11 +9971,13 @@ class Engine:
                     threshold_met = words >= 3 or chars >= 12
                     if not threshold_met:
                         if force:
-                            pending_segments.clear()
                             if from_flush:
                                 flush_task = None
                             else:
                                 await cancel_flush()
+                            await run_turn(aggregated)
+                            pending_segments.clear()
+                            return
                         else:
                             logger.debug(
                                 "Accumulating transcript before LLM",

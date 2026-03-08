@@ -1127,7 +1127,9 @@ async def test_provider_connection(request: ProviderTestRequest):
         # ============================================================
         # ELEVENLABS AGENT - check before other providers
         # ============================================================
-        if 'elevenlabs' in provider_name or 'agent_id' in provider_config:
+        provider_type_str = str(provider_config.get('type', '')).lower()
+        provider_base_url = str(provider_config.get('base_url', '')).lower()
+        if 'elevenlabs' in provider_name or 'elevenlabs' in provider_type_str or 'elevenlabs' in provider_base_url or 'agent_id' in provider_config:
             api_key = get_env_key('ELEVENLABS_API_KEY')
             if not api_key:
                 return {"success": False, "message": "ELEVENLABS_API_KEY not set in .env file"}

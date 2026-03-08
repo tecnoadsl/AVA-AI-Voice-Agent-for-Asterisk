@@ -507,9 +507,12 @@ class InCallHTTPTool(Tool):
         def env_replacer(match):
             var_name = match.group(1)
             return os.environ.get(var_name, "")
-        
+
         result = re.sub(env_pattern, env_replacer, result)
-        
+
+        # Clean up any remaining unresolved {placeholder} variables
+        result = re.sub(r'\{[a-z_][a-z0-9_]*\}', '', result)
+
         return result
     
     def _extract_output_variables(self, data: Any) -> Dict[str, Any]:

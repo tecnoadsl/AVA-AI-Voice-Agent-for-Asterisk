@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
@@ -39,6 +40,13 @@ from .base import Component, LLMComponent, LLMResponse
 
 logger = get_logger(__name__)
 
+# RAG configuration
+_QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+_QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "company_documents")
+_RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
+_RAG_SCORE_THRESHOLD = float(os.getenv("RAG_SCORE_THRESHOLD", "0.0"))
+_EMBED_MODEL = os.getenv("RAG_EMBED_MODEL", "nomic-embed-text")
+
 # Default Ollama endpoint (user must configure their own)
 _DEFAULT_BASE_URL = "http://localhost:11434"
 _DEFAULT_MODEL = "llama3.2"
@@ -48,6 +56,7 @@ _TOOL_CAPABLE_MODELS = {
     "llama3.2", "llama3.1", "llama3", "llama3.2:1b", "llama3.2:3b",
     "mistral", "mistral-nemo", "mistral:7b",
     "qwen2.5", "qwen2.5:7b", "qwen2.5:14b", "qwen2",
+    "qwen3", "qwen3:8b", "qwen3:30b-a3b-q4_K_M",
     "command-r", "command-r-plus",
     "nemotron", "granite3-dense",
 }
@@ -161,6 +170,99 @@ class OllamaLLMAdapter(LLMComponent):
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
 
+    async def _rag_retrieve(self, query: str, base_url: str) -> Optional[str]:
+        """Retrieve relevant context from Qdrant via embedding + search.
+
+        Returns formatted context string or None if no relevant results.
+        Designed for minimal latency: single embedding call + single Qdrant search.
+        """
+        await self._ensure_session()
+        assert self._session
+
+        try:
+            # 1. Generate embedding via Ollama (nomic-embed-text, ~30-50ms)
+            embed_url = f"{base_url.rstrip('/')}/api/embed"
+            embed_payload = {"model": _EMBED_MODEL, "input": query}
+            timeout = aiohttp.ClientTimeout(total=5)
+
+            async with self._session.post(embed_url, json=embed_payload, timeout=timeout) as resp:
+                if resp.status != 200:
+                    logger.warning("RAG embed failed", status=resp.status)
+                    return None
+                embed_data = await resp.json()
+                embedding = embed_data.get("embeddings", [[]])[0]
+                if not embedding:
+                    return None
+
+            # 2. Search Qdrant: general + gold tickets in parallel (~10ms)
+            search_url = f"{_QDRANT_URL}/collections/{_QDRANT_COLLECTION}/points/search"
+            general_payload = {
+                "vector": embedding,
+                "limit": _RAG_TOP_K,
+                "with_payload": True,
+            }
+            gold_payload = {
+                "vector": embedding,
+                "limit": 3,
+                "with_payload": True,
+                "filter": {"must": [{"key": "source_file", "match": {"value": "kb-gold-ticket"}}]},
+            }
+
+            # Run both searches in parallel
+            async with self._session.post(search_url, json=general_payload, timeout=timeout) as resp:
+                general_points = (await resp.json()).get("result", []) if resp.status == 200 else []
+
+            async with self._session.post(search_url, json=gold_payload, timeout=timeout) as resp:
+                gold_points = (await resp.json()).get("result", []) if resp.status == 200 else []
+
+            # Merge: gold tickets first (score > 0.5), then general, deduplicated
+            seen = set()
+            points = []
+            for pt in gold_points:
+                pid = pt.get("id")
+                if pt.get("score", 0) >= 0.5 and pid not in seen:
+                    seen.add(pid)
+                    points.append(pt)
+            for pt in general_points:
+                pid = pt.get("id")
+                if pid not in seen:
+                    seen.add(pid)
+                    points.append(pt)
+            points = points[:6]
+
+            if not points:
+                return None
+
+            # 3. Format context
+            chunks = []
+            for pt in points:
+                payload = pt.get("payload", {})
+                text = payload.get("text", payload.get("content", ""))
+                source = payload.get("source_file", "")
+                label = f"KB Esperto ({payload.get('category', 'assistenza')})" if source == "kb-gold-ticket" else source
+                score = pt.get("score", 0)
+                if text:
+                    chunks.append(f"[{label} score={score:.2f}] {text[:500]}")
+
+            if not chunks:
+                return None
+
+            context_text = "\n---\n".join(chunks)
+            logger.info(
+                "RAG context retrieved",
+                query_preview=query[:60],
+                chunks=len(chunks),
+                top_score=points[0].get("score", 0),
+            )
+            return context_text
+
+        except asyncio.TimeoutError:
+            logger.warning("RAG retrieval timeout")
+            return None
+        except Exception as e:
+            logger.warning("RAG retrieval error", error=str(e))
+            return None
+
     def _build_tools_schema(self, tool_names: List[str]) -> List[Dict[str, Any]]:
         """Build Ollama-compatible tool schemas from tool registry."""
         tools = []
@@ -211,10 +313,16 @@ class OllamaLLMAdapter(LLMComponent):
         # Build messages array
         # Add system message if not already present
         if not messages or messages[0].get("role") != "system":
-            system_prompt = context.get("system_prompt", "")
+            system_prompt = context.get("system_prompt", "") or merged.get("system_prompt", "")
             if system_prompt:
                 messages.insert(0, {"role": "system", "content": system_prompt})
-        
+
+        # RAG: retrieve relevant context and inject into the conversation
+        rag_enabled = merged.get("rag_enabled", True)
+        rag_context = None
+        if rag_enabled and transcript and transcript.strip():
+            rag_context = await self._rag_retrieve(transcript, merged["base_url"])
+
         # Handle prior_messages from context (includes tool results)
         prior_messages = context.get("prior_messages", [])
         if prior_messages:
@@ -250,7 +358,15 @@ class OllamaLLMAdapter(LLMComponent):
         
         # Add user message only if there's actual transcript
         if transcript and transcript.strip():
-            messages.append({"role": "user", "content": transcript})
+            if rag_context:
+                user_content = (
+                    f"{transcript}\n\n"
+                    f"INFORMAZIONI DALLA DOCUMENTAZIONE AZIENDALE (usa SOLO se pertinenti alla domanda, altrimenti ignora e segui le istruzioni del system prompt):\n"
+                    f"{rag_context}"
+                )
+            else:
+                user_content = transcript
+            messages.append({"role": "user", "content": user_content})
         
         # Prepare API request
         await self._ensure_session()
@@ -259,8 +375,10 @@ class OllamaLLMAdapter(LLMComponent):
         url = f"{merged['base_url'].rstrip('/')}/api/chat"
         payload = {
             "model": model,
-            "messages": messages[-10:],  # Keep last 10 messages for context
+            "messages": ([messages[0]] + messages[-9:] if len(messages) > 10 and messages[0].get("role") == "system" else messages[-10:]),  # Always keep system prompt + last 9
             "stream": False,
+            "think": False,  # Disable thinking mode for low latency
+            "keep_alive": "24h",
             "options": {},
         }
         payload["options"]["temperature"] = merged.get("temperature", 0.7)
@@ -293,12 +411,14 @@ class OllamaLLMAdapter(LLMComponent):
                 payload["tools"] = tools_schema
                 session_state["tools_attempted"] = True
         
-        logger.debug(
+        logger.info(
             "Ollama chat request",
             call_id=call_id,
             model=model,
             messages_count=len(messages),
             tools_enabled=use_tools,
+            tools_in_payload=len(payload.get("tools", [])),
+            last_user_msg=(messages[-1].get("content", "")[:80] if messages and messages[-1].get("role") == "user" else ""),
         )
         
         try:
@@ -328,6 +448,12 @@ class OllamaLLMAdapter(LLMComponent):
                 data = await response.json()
                 message = data.get("message", {})
                 text = message.get("content", "").strip()
+                logger.info(
+                    "Ollama raw response",
+                    call_id=call_id,
+                    raw_content_preview=message.get("content", "")[:200],
+                    has_tool_calls=bool(message.get("tool_calls")),
+                )
                 tool_calls_raw = message.get("tool_calls", [])
                 
                 # Parse tool calls if present

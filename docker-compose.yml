@@ -60,12 +60,12 @@ services:
     pull_policy: build
     build:
       context: ./local_ai_server
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.gpu
       network: host
       args:
         - INCLUDE_VOSK=${INCLUDE_VOSK:-true}
         - INCLUDE_SHERPA=${INCLUDE_SHERPA:-true}
-        - INCLUDE_FASTER_WHISPER=${INCLUDE_FASTER_WHISPER:-false}
+        - INCLUDE_FASTER_WHISPER=${INCLUDE_FASTER_WHISPER:-true}
         - INCLUDE_WHISPER_CPP=${INCLUDE_WHISPER_CPP:-false}
         - INCLUDE_PIPER=${INCLUDE_PIPER:-true}
         - INCLUDE_KOKORO=${INCLUDE_KOKORO:-true}
@@ -79,6 +79,8 @@ services:
     volumes:
       - ./models:/app/models
       - ./data:/app/data
+      - ./local_ai_server/stt_backends.py:/app/stt_backends.py
+      - ./local_ai_server/server.py:/app/server.py
     environment:
       - PYTHONUNBUFFERED=1
       # Note: All LOCAL_* variables are loaded from .env via env_file directive above
@@ -88,13 +90,13 @@ services:
     stdin_open: true
     restart: unless-stopped
     # Uncomment below for NVIDIA GPU support:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     healthcheck:
       test:
         - CMD-SHELL

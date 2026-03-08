@@ -56,7 +56,7 @@ RUN if [ "$INCLUDE_SHERPA" = "true" ]; then \
 
 RUN if [ "$INCLUDE_FASTER_WHISPER" = "true" ]; then \
         echo "📦 Installing Faster-Whisper STT..." && \
-        pip install --no-cache-dir faster-whisper==1.0.3; \
+        pip install --no-cache-dir faster-whisper>=1.2.1; \
     fi
 
 RUN if [ "$INCLUDE_WHISPER_CPP" = "true" ]; then \
@@ -95,7 +95,7 @@ RUN if [ "$INCLUDE_MELOTTS" = "true" ]; then \
 
 RUN if [ "$INCLUDE_LLAMA" = "true" ]; then \
         echo "📦 Installing llama-cpp-python LLM..." && \
-        pip install --no-cache-dir llama-cpp-python==0.3.16; \
+        CMAKE_ARGS="-DGGML_CUDA=on" pip install --no-cache-dir llama-cpp-python==0.3.16; \
     fi
 
 # Pre-install spacy model for Kokoro TTS (only if Kokoro included)

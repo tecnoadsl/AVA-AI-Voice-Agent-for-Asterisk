@@ -56,7 +56,7 @@ RUN if [ "$INCLUDE_SHERPA" = "true" ]; then \
     fi
 
 RUN if [ "$INCLUDE_FASTER_WHISPER" = "true" ]; then \
-        pip install --no-cache-dir faster-whisper==1.0.3; \
+        pip install --no-cache-dir faster-whisper>=1.2.1; \
     fi
 
 RUN if [ "$INCLUDE_WHISPER_CPP" = "true" ]; then \

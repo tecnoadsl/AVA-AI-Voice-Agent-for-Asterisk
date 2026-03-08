@@ -774,6 +774,8 @@ class LocalAIServer:
         self.sherpa_backend: Optional[SherpaONNXSTTBackend] = None
         self.faster_whisper_backend: Optional["FasterWhisperSTTBackend"] = None
         self.whisper_cpp_backend: Optional["WhisperCppSTTBackend"] = None
+        self.elevenlabs_stt_backend = None
+        self._elevenlabs_stt_lock = asyncio.Lock()
         self.kokoro_backend: Optional[KokoroTTSBackend] = None
         self.melotts_backend: Optional["MeloTTSBackend"] = None
         self._apply_config(self.config)
@@ -1128,6 +1130,8 @@ class LocalAIServer:
             await self._load_faster_whisper_backend()
         elif self.stt_backend == "whisper_cpp":
             await self._load_whisper_cpp_backend()
+        elif self.stt_backend == "elevenlabs":
+            await self._load_elevenlabs_stt_backend()
         else:
             await self._load_vosk_backend()
 
@@ -1354,6 +1358,38 @@ class LocalAIServer:
         except Exception as exc:
             logging.error("❌ Failed to initialize Whisper.cpp STT backend: %s", exc)
             self.whisper_cpp_backend = None
+            self.startup_errors["stt"] = str(exc)
+            if self.fail_fast:
+                raise
+
+    async def _load_elevenlabs_stt_backend(self):
+        """Initialize ElevenLabs Scribe STT backend (cloud API)."""
+        try:
+            from backends.stt.elevenlabs_backend import ElevenLabsSTTBackend
+
+            api_key = self.config.elevenlabs_stt_api_key
+            if not api_key:
+                raise ValueError("ELEVENLABS_API_KEY not set")
+
+            logging.info(
+                "STT backend: ElevenLabs (model=%s, language=%s)",
+                self.config.elevenlabs_stt_model,
+                self.config.elevenlabs_stt_language,
+            )
+
+            self.elevenlabs_stt_backend = ElevenLabsSTTBackend()
+            self.elevenlabs_stt_backend.initialize({
+                "api_key": api_key,
+                "language": self.config.elevenlabs_stt_language,
+                "model_id": self.config.elevenlabs_stt_model,
+            })
+            self._elevenlabs_stt_lock = asyncio.Lock()
+
+            logging.info("STT backend: ElevenLabs initialized")
+
+        except Exception as exc:
+            logging.error("Failed to initialize ElevenLabs STT backend: %s", exc)
+            self.elevenlabs_stt_backend = None
             self.startup_errors["stt"] = str(exc)
             if self.fail_fast:
                 raise
@@ -2926,6 +2962,8 @@ class LocalAIServer:
             return self.faster_whisper_backend is not None
         if self.stt_backend == "whisper_cpp":
             return self.whisper_cpp_backend is not None
+        if self.stt_backend == "elevenlabs":
+            return getattr(self, "elevenlabs_stt_backend", None) is not None
         # Default: Vosk
         return self.stt_model is not None and KaldiRecognizer is not None
 
@@ -2945,6 +2983,8 @@ class LocalAIServer:
             return await self._process_stt_stream_faster_whisper(session, audio_data, input_rate)
         elif self.stt_backend == "whisper_cpp":
             return await self._process_stt_stream_whisper_cpp(session, audio_data, input_rate)
+        elif self.stt_backend == "elevenlabs":
+            return await self._process_stt_stream_elevenlabs(session, audio_data, input_rate)
         else:
             return await self._process_stt_stream_vosk(session, audio_data, input_rate)
 
@@ -2976,6 +3016,20 @@ class LocalAIServer:
             backend_name="whisper_cpp",
         )
 
+    async def _process_stt_stream_elevenlabs(
+        self,
+        session: SessionContext,
+        audio_data: bytes,
+        input_rate: int,
+    ) -> List[Dict[str, Any]]:
+        """Telephony-friendly utterance segmentation + one-shot ElevenLabs Scribe decode."""
+        return await self._process_stt_stream_whisper_segmented(
+            session,
+            audio_data,
+            input_rate,
+            backend_name="elevenlabs",
+        )
+
     async def _process_stt_stream_whisper_segmented(
         self,
         session: SessionContext,
@@ -2997,6 +3051,12 @@ class LocalAIServer:
         elif backend_name == "whisper_cpp":
             backend = self.whisper_cpp_backend
             lock = self._whisper_cpp_lock
+        elif backend_name == "elevenlabs":
+            backend = getattr(self, "elevenlabs_stt_backend", None)
+            lock = getattr(self, "_elevenlabs_stt_lock", None)
+            if lock is None:
+                self._elevenlabs_stt_lock = asyncio.Lock()
+                lock = self._elevenlabs_stt_lock
         else:  # pragma: no cover - defensive guard
             logging.error("Unknown Whisper backend: %s", backend_name)
             return []
@@ -3298,23 +3358,26 @@ class LocalAIServer:
         except RuntimeError:
             session.last_audio_at = 0.0
         
-        # Calculate RMS to detect silent audio (only in debug mode)
-        if DEBUG_AUDIO_FLOW:
-            try:
-                import struct
-                import math
-                samples = struct.unpack(f"{len(audio_bytes)//2}h", audio_bytes)
-                squared_sum = sum(s*s for s in samples)
-                rms = math.sqrt(squared_sum / len(samples)) if samples else 0
-                logging.debug(
+        # Calculate RMS to detect silent audio
+        try:
+            import struct
+            import math
+            samples = struct.unpack(f"{len(audio_bytes)//2}h", audio_bytes)
+            squared_sum = sum(s*s for s in samples)
+            rms = math.sqrt(squared_sum / len(samples)) if samples else 0
+            if rms > 100 or not hasattr(session, '_rms_log_count') or session._rms_log_count < 5:
+                if not hasattr(session, '_rms_log_count'):
+                    session._rms_log_count = 0
+                session._rms_log_count += 1
+                logging.info(
                     "🎤 FEEDING VOSK call_id=%s bytes=%d samples=%d rms=%.2f",
                     session.call_id or "unknown",
                     len(audio_bytes),
                     len(samples),
                     rms,
                 )
-            except Exception as rms_exc:
-                logging.debug("RMS calculation failed: %s", rms_exc)
+        except Exception as rms_exc:
+            logging.debug("RMS calculation failed: %s", rms_exc)
 
         try:
             has_final = recognizer.AcceptWaveform(audio_bytes)

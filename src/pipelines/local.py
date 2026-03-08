@@ -554,7 +554,7 @@ class LocalSTTAdapter(_LocalAdapterBase, STTComponent):
             self._stream_receive_loop(session, runtime_options)
         )
         logger.debug(
-            "Local STT streaming started",
+            "start_stream receiver_task created",
             component=self.component_key,
             call_id=call_id,
         )
@@ -575,7 +575,7 @@ class LocalSTTAdapter(_LocalAdapterBase, STTComponent):
             return
         
         logger.debug(
-            "🎤 STT send_audio called",
+            "send_audio called",
             component=self.component_key,
             call_id=call_id,
             input_bytes=len(audio),
@@ -585,10 +585,12 @@ class LocalSTTAdapter(_LocalAdapterBase, STTComponent):
         session = self._sessions.get(call_id)
         if not session or session.send_lock is None:
             # Try to recover by checking if we can get a valid session
-            logger.debug(
-                "STT session not found or no send_lock, attempting recovery",
+            logger.warning(
+                "STT session not found or no send_lock, DROPPING audio",
                 component=self.component_key,
                 call_id=call_id,
+                has_session=session is not None,
+                sessions_keys=list(self._sessions.keys())[:5],
             )
             return  # Skip this audio frame rather than crash the call
         
@@ -624,7 +626,7 @@ class LocalSTTAdapter(_LocalAdapterBase, STTComponent):
                 # Check connection state before sending
                 if session.websocket.state.name != "OPEN":
                     logger.debug(
-                        "WebSocket not open, attempting reconnection for STT audio",
+                        "send_audio WS not open",
                         component=self.component_key,
                         call_id=call_id,
                         ws_state=session.websocket.state.name,
@@ -712,12 +714,14 @@ class LocalSTTAdapter(_LocalAdapterBase, STTComponent):
             return
         timeout = options.get("streaming_result_timeout_sec")
         timeout_val = float(timeout) if timeout is not None else None
+        logger.debug("_stream_receive_loop started", component=self.component_key, call_id=session.call_id)
         try:
             while True:
                 try:
                     kind, message = await self._recv_any(session, timeout_val)
                 except asyncio.TimeoutError:
                     continue
+                logger.debug("_stream_receive_loop got msg", component=self.component_key, call_id=session.call_id, kind=kind)
                 if kind != "json":
                     continue
                 if message.get("type") != "stt_result":
