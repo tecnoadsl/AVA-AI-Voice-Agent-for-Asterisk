@@ -9,6 +9,7 @@ ARG INCLUDE_WHISPER_CPP=true
 ARG INCLUDE_PIPER=true
 ARG INCLUDE_KOKORO=true
 ARG INCLUDE_MELOTTS=false
+ARG INCLUDE_XTTS=false
 ARG INCLUDE_LLAMA=true
 ARG MELOTTS_GIT_REF=209145371cff8fc3bd60d7be902ea69cbdb7965a
 
@@ -93,6 +94,10 @@ RUN if [ "$INCLUDE_LLAMA" = "true" ]; then \
         CMAKE_ARGS="-DGGML_CUDA=on -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=OFF" \
         FORCE_CMAKE=1 \
         pip install --no-cache-dir llama-cpp-python==0.3.16; \
+    fi
+
+RUN if [ "$INCLUDE_XTTS" = "true" ]; then \
+        pip install --no-cache-dir TTS; \
     fi
 
 # Pre-install spacy model for Kokoro TTS (only if Kokoro included)

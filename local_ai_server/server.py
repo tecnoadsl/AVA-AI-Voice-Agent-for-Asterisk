@@ -778,6 +778,10 @@ class LocalAIServer:
         self._elevenlabs_stt_lock = asyncio.Lock()
         self.kokoro_backend: Optional[KokoroTTSBackend] = None
         self.melotts_backend: Optional["MeloTTSBackend"] = None
+        self.xtts_model = None
+        self.xtts_speaker_wav = ""
+        self.xtts_language = "it"
+        self.xtts_model_path = ""
         self._apply_config(self.config)
         self.model_manager = ModelManager(self)
         self.ws_protocol = WebSocketProtocol(self)
@@ -1054,6 +1058,9 @@ class LocalAIServer:
         self.kokoro_api_base_url = config.kokoro_api_base_url
         self.kokoro_api_key = config.kokoro_api_key
         self.kokoro_api_model = config.kokoro_api_model
+        self.xtts_speaker_wav = config.xtts_speaker_wav
+        self.xtts_language = config.xtts_language
+        self.xtts_model_path = config.xtts_model_path
 
     def _resolve_vosk_model_path(self, path: str) -> str:
         """Resolve the correct Vosk model directory.
@@ -1917,8 +1924,35 @@ class LocalAIServer:
             await self._load_kokoro_backend()
         elif self.tts_backend == "melotts":
             await self._load_melotts_backend()
+        elif self.tts_backend == "xtts":
+            await self._load_xtts_backend()
         else:
             await self._load_piper_backend()
+
+    async def _load_xtts_backend(self):
+        """Load XTTS v2 TTS model with CUDA support."""
+        try:
+            from TTS.api import TTS as CoquiTTS
+
+            model_name = self.xtts_model_path or "tts_models/multilingual/multi-dataset/xtts_v2"
+            logging.info("Loading XTTS v2 model: %s", model_name)
+
+            if self.xtts_model_path:
+                self.xtts_model = CoquiTTS(model_path=self.xtts_model_path).to("cuda")
+            else:
+                self.xtts_model = CoquiTTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cuda")
+
+            logging.info(
+                "✅ TTS backend: XTTS v2 loaded (lang=%s, speaker_wav=%s)",
+                self.xtts_language,
+                self.xtts_speaker_wav,
+            )
+        except Exception as exc:
+            logging.error("❌ Failed to load XTTS v2 backend: %s", exc, exc_info=True)
+            self.xtts_model = None
+            self.startup_errors["tts"] = str(exc)
+            if self.fail_fast:
+                raise
 
     async def _load_piper_backend(self):
         """Load Piper TTS model with 22kHz support."""
@@ -2116,6 +2150,12 @@ class LocalAIServer:
             except Exception as exc:  # pragma: no cover
                 logging.debug("MeloTTS backend shutdown failed: %s", exc, exc_info=True)
             self.melotts_backend = None
+        if self.xtts_model:
+            try:
+                del self.xtts_model
+            except Exception as exc:  # pragma: no cover
+                logging.debug("XTTS backend shutdown failed: %s", exc, exc_info=True)
+            self.xtts_model = None
         self.stt_model = None
         self.tts_model = None
         self.llm_model = None
@@ -2686,6 +2726,8 @@ class LocalAIServer:
             return await self._process_tts_kokoro(text)
         elif self.tts_backend == "melotts":
             return await self._process_tts_melotts(text)
+        elif self.tts_backend == "xtts":
+            return await self._process_tts_xtts(text)
         else:
             return await self._process_tts_piper(text)
 
@@ -2729,6 +2771,53 @@ class LocalAIServer:
 
         except Exception as exc:
             logging.error("MeloTTS processing failed: %s", exc, exc_info=True)
+            return b""
+
+    async def _process_tts_xtts(self, text: str) -> bytes:
+        """Process TTS using XTTS v2 backend (24kHz output)."""
+        try:
+            if not self.xtts_model:
+                logging.error("XTTS v2 model not loaded")
+                return b""
+
+            logging.debug("🔊 TTS INPUT - XTTS v2 generating audio for: %s", text)
+
+            import numpy as np
+
+            wav = await asyncio.to_thread(
+                self.xtts_model.tts,
+                text=text,
+                speaker_wav=self.xtts_speaker_wav,
+                language=self.xtts_language,
+            )
+
+            # Convert float list [-1, 1] to PCM16
+            audio_array = np.array(wav, dtype=np.float32)
+            audio_array = np.clip(audio_array, -1.0, 1.0)
+            pcm16 = (audio_array * 32767).astype(np.int16)
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                wav_path = tmp.name
+
+            with wave.open(wav_path, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(24000)
+                wf.writeframes(pcm16.tobytes())
+
+            with open(wav_path, "rb") as f:
+                wav_data = f.read()
+
+            ulaw_data = await asyncio.to_thread(
+                self.audio_processor.convert_to_ulaw_8k, wav_data, 24000
+            )
+            os.unlink(wav_path)
+
+            logging.info("🔊 TTS RESULT - XTTS v2 generated uLaw 8kHz audio: %s bytes", len(ulaw_data))
+            return ulaw_data
+
+        except Exception as exc:
+            logging.error("XTTS v2 TTS processing failed: %s", exc, exc_info=True)
             return b""
 
     async def _process_tts_piper(self, text: str) -> bytes:
