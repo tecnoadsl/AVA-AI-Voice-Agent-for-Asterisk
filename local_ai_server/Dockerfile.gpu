@@ -97,7 +97,7 @@ RUN if [ "$INCLUDE_LLAMA" = "true" ]; then \
     fi
 
 RUN if [ "$INCLUDE_XTTS" = "true" ]; then \
-        pip install --no-cache-dir TTS; \
+        pip install --no-cache-dir TTS "setuptools<81" "transformers<4.47"; \
     fi
 
 # Pre-install spacy model for Kokoro TTS (only if Kokoro included)

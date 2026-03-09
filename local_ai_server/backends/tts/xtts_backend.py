@@ -37,6 +37,17 @@ class XTTSBackend(TTSBackendInterface):
             return False
 
     def initialize(self, config: Dict[str, Any]) -> None:
+        import torch
+
+        # Patch torch.load for PyTorch 2.6+ compatibility with XTTS v2
+        # PyTorch 2.6 changed weights_only default to True, but XTTS model
+        # uses custom classes that require weights_only=False
+        _original_torch_load = torch.load
+        def _patched_load(*args, **kwargs):
+            kwargs.setdefault("weights_only", False)
+            return _original_torch_load(*args, **kwargs)
+        torch.load = _patched_load
+
         from TTS.api import TTS
 
         model_path = config.get("model_path", "")
@@ -47,6 +58,9 @@ class XTTSBackend(TTSBackendInterface):
             self._tts = TTS(model_path=model_path).to("cuda")
         else:
             self._tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cuda")
+
+        # Restore original torch.load
+        torch.load = _original_torch_load
 
         logging.info(
             "XTTS v2 backend initialized (lang=%s, speaker_wav=%s)",

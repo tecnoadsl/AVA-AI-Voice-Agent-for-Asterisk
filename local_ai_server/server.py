@@ -1932,6 +1932,14 @@ class LocalAIServer:
     async def _load_xtts_backend(self):
         """Load XTTS v2 TTS model with CUDA support."""
         try:
+            # Patch torch.load for PyTorch 2.6+ (weights_only=True by default)
+            import torch
+            _orig_load = torch.load
+            def _patched_load(*a, **kw):
+                kw.setdefault("weights_only", False)
+                return _orig_load(*a, **kw)
+            torch.load = _patched_load
+
             from TTS.api import TTS as CoquiTTS
 
             model_name = self.xtts_model_path or "tts_models/multilingual/multi-dataset/xtts_v2"
@@ -1942,13 +1950,16 @@ class LocalAIServer:
             else:
                 self.xtts_model = CoquiTTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cuda")
 
+            # Restore original torch.load
+            torch.load = _orig_load
+
             logging.info(
                 "✅ TTS backend: XTTS v2 loaded (lang=%s, speaker_wav=%s)",
                 self.xtts_language,
                 self.xtts_speaker_wav,
             )
         except Exception as exc:
-            logging.error("❌ Failed to load XTTS v2 backend: %s", exc, exc_info=True)
+            logging.error("❌ Failed to load XTTS v2 backend: %s", exc)
             self.xtts_model = None
             self.startup_errors["tts"] = str(exc)
             if self.fail_fast:
@@ -2154,7 +2165,7 @@ class LocalAIServer:
             try:
                 del self.xtts_model
             except Exception as exc:  # pragma: no cover
-                logging.debug("XTTS backend shutdown failed: %s", exc, exc_info=True)
+                logging.debug("XTTS backend shutdown failed: %s", exc)
             self.xtts_model = None
         self.stt_model = None
         self.tts_model = None
@@ -2817,7 +2828,7 @@ class LocalAIServer:
             return ulaw_data
 
         except Exception as exc:
-            logging.error("XTTS v2 TTS processing failed: %s", exc, exc_info=True)
+            logging.error("XTTS v2 TTS processing failed: %s", exc)
             return b""
 
     async def _process_tts_piper(self, text: str) -> bytes:
