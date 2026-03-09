@@ -1940,6 +1940,20 @@ class LocalAIServer:
                 return _orig_load(*a, **kw)
             torch.load = _patched_load
 
+            # Patch torchaudio.load for torchaudio 2.10+ (requires torchcodec/ffmpeg)
+            import torchaudio
+            import soundfile as sf
+            import torch as _torch
+            _orig_torchaudio_load = torchaudio.load
+            def _patched_torchaudio_load(filepath, *args, **kwargs):
+                try:
+                    return _orig_torchaudio_load(filepath, *args, **kwargs)
+                except (RuntimeError, ImportError):
+                    data, samplerate = sf.read(str(filepath), dtype="float32")
+                    tensor = _torch.from_numpy(data).unsqueeze(0) if data.ndim == 1 else _torch.from_numpy(data.T)
+                    return tensor, samplerate
+            torchaudio.load = _patched_torchaudio_load
+
             from TTS.api import TTS as CoquiTTS
 
             model_name = self.xtts_model_path or "tts_models/multilingual/multi-dataset/xtts_v2"
