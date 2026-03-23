@@ -152,8 +152,27 @@ profiles:
       encoding: slin
       sample_rate_hz: 8000
 
-# Pipeline Definitions
-pipelines: {}
+# Pipeline Definition - Hybrid (ElevenLabs STT/TTS + Ollama LLM)
+pipelines:
+  local_hybrid:
+    llm: local_llm
+    options:
+      llm:
+        base_url: http://127.0.0.1:11434
+        max_tokens: 150
+        model: qwen3:30b-a3b-q4_K_M
+        temperature: 0.7
+      stt:
+        chunk_ms: 160
+        mode: stt
+        stream_format: pcm16_16k
+        streaming: true
+      tts:
+        format:
+          encoding: mulaw
+          sample_rate: 8000
+    stt: local_stt
+    tts: elevenlabs_tts
 
 # Provider Configuration - Local AI Server
 providers:

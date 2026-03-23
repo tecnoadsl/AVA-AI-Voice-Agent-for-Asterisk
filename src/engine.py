@@ -252,6 +252,7 @@ class Engine:
         self._outbound_dial_prefix = str(os.getenv("AAVA_OUTBOUND_DIAL_PREFIX", "")).strip()
         self._outbound_channel_tech = str(os.getenv("AAVA_OUTBOUND_CHANNEL_TECH", "auto")).strip().lower() or "auto"
         self._outbound_pbx_type = str(os.getenv("AAVA_OUTBOUND_PBX_TYPE", "freepbx")).strip().lower() or "freepbx"
+        self._outbound_pjsip_trunk = str(os.getenv("AAVA_OUTBOUND_PJSIP_TRUNK", "")).strip()
         
         # Initialize streaming playback manager
         streaming_config = {}
@@ -1367,6 +1368,10 @@ class Engine:
         phone = (dial_phone or "").strip()
         if not phone:
             return f"Local/{dial_prefix}{dial_phone}@{dial_context}"
+
+        # If a PJSIP trunk is configured, route directly via trunk (no Local channel).
+        if self._outbound_pjsip_trunk:
+            return f"PJSIP/{dial_prefix}{phone}@{self._outbound_pjsip_trunk}"
 
         # If forced to local_only, skip all endpoint probing.
         if channel_tech == "local_only":
@@ -2549,7 +2554,7 @@ class Engine:
             
             # Create bridge immediately (use default bridge_type to prevent simple_bridge optimization)
             logger.info("🎯 HYBRID ARI - Step 2: Creating bridge immediately", channel_id=caller_channel_id)
-            bridge_id = await self.ari_client.create_bridge()  # Uses default: mixing,dtmf_events,proxy_media
+            bridge_id = await self.ari_client.create_bridge("mixing,dtmf_events,proxy_media")
             if not bridge_id:
                 raise RuntimeError("Failed to create mixing bridge")
             logger.info("🎯 HYBRID ARI - Step 2: ✅ Bridge created", 
@@ -4824,6 +4829,31 @@ class Engine:
             # Clean up in-memory guard
             if resolved_call_id:
                 _cleanup_in_progress.discard(resolved_call_id)
+
+    async def _push_transcript_to_gateway(self, call_id: str, role: str, content: str, caller_number: str = None):
+        """Push real-time transcript turn to gateway dashboard."""
+        gateway_url = os.getenv("AAVA_GATEWAY_TRANSCRIPT_URL", "").strip()
+        gateway_key = os.getenv("AAVA_GATEWAY_API_KEY", "").strip()
+        if not gateway_url:
+            return
+        try:
+            import aiohttp
+            payload = {
+                "session_id": f"ava-{call_id}",
+                "channel": "voice",
+                "role": role,
+                "content": content,
+                "caller_id": caller_number,
+            }
+            headers = {"Content-Type": "application/json"}
+            if gateway_key:
+                headers["X-API-Key"] = gateway_key
+            async with aiohttp.ClientSession() as http:
+                async with http.post(gateway_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                    if resp.status >= 400:
+                        logger.debug("Gateway transcript push failed", status=resp.status, call_id=call_id)
+        except Exception as e:
+            logger.debug("Gateway transcript push error", error=str(e), call_id=call_id)
 
     async def _persist_call_history(self, session: CallSession, call_id: str) -> None:
         """Persist call record to history database (Milestone 21)."""
@@ -8756,6 +8786,7 @@ class Engine:
                         session.conversation_history = []
                     session.conversation_history.append({"role": "user", "content": text})
                     await self.session_store.upsert_call(session)
+                    asyncio.ensure_future(self._push_transcript_to_gateway(call_id, "user", text, getattr(session, 'caller_number', None)))
                     logger.debug("Added user transcript to history", call_id=call_id, text_preview=text[:50])
             
             elif etype == "agent_transcript":
@@ -8767,6 +8798,7 @@ class Engine:
                         session.conversation_history = []
                     session.conversation_history.append({"role": "assistant", "content": text})
                     await self.session_store.upsert_call(session)
+                    asyncio.ensure_future(self._push_transcript_to_gateway(call_id, "assistant", text, getattr(session, 'caller_number', None)))
                     logger.debug("Added agent transcript to history", call_id=call_id, text_preview=text[:50])
             
             else:
@@ -9087,6 +9119,7 @@ class Engine:
                                 try:
                                     session.conversation_history.append({"role": "assistant", "content": greeting})
                                     await self.session_store.upsert_call(session)
+                                    asyncio.ensure_future(self._push_transcript_to_gateway(call_id, "assistant", greeting, getattr(session, 'caller_number', None)))
                                     logger.info("Persisted initial greeting to session history", call_id=call_id)
                                 except Exception as e:
                                     logger.warning("Failed to persist greeting history", call_id=call_id, error=str(e))
@@ -9108,6 +9141,7 @@ class Engine:
                                 try:
                                     session.conversation_history.append({"role": "assistant", "content": greeting})
                                     await self.session_store.upsert_call(session)
+                                    asyncio.ensure_future(self._push_transcript_to_gateway(call_id, "assistant", greeting, getattr(session, 'caller_number', None)))
                                     logger.info("Persisted initial greeting to session history", call_id=call_id)
                                 except Exception as e:
                                     logger.warning("Failed to persist greeting history", call_id=call_id, error=str(e))
