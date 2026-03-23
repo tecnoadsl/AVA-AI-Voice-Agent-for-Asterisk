@@ -187,7 +187,199 @@ providers:
     temperature: 0.4
     tts_voice: models/tts/it_IT-riccardo-x_low.onnx
     ws_url: ${LOCAL_WS_URL:-ws://127.0.0.1:8765}
-  elevenlabs:
+  local_stt:
+    auth_token: ${LOCAL_WS_AUTH_TOKEN:-}
+    capabilities:
+      - stt
+    chunk_ms: ${LOCAL_WS_CHUNK_MS:=320}
+    connect_timeout_sec: ${LOCAL_WS_CONNECT_TIMEOUT:=2.0}
+    enabled: false
+    response_timeout_sec: ${LOCAL_WS_RESPONSE_TIMEOUT:=10.0}
+    stt_backend: vosk
+    stt_model: models/stt/vosk-model-en-us-0.22
+    type: local
+    # Uses LOCAL_WS_URL (see providers.local.base_url note above).
+    ws_url: ${LOCAL_WS_URL:-ws://127.0.0.1:8765}
+  local_tts:
+    auth_token: ${LOCAL_WS_AUTH_TOKEN:-}
+    capabilities:
+      - tts
+    enabled: false
+    response_timeout_sec: ${LOCAL_WS_RESPONSE_TIMEOUT:=10.0}
+    tts_voice: models/tts/en_US-lessac-medium.onnx
+    type: local
+    # Uses LOCAL_WS_URL (see providers.local.base_url note above).
+    ws_url: ${LOCAL_WS_URL:-ws://127.0.0.1:8765}
+  openai_llm:
+    capabilities:
+      - llm
+    api_key: ${OPENAI_API_KEY}
+    chat_base_url: https://api.openai.com/v1
+    chat_model: gpt-4o-mini
+    enabled: false
+    response_timeout_sec: 5
+    temperature: 0.7
+    type: openai
+  groq_llm:
+    capabilities:
+      - llm
+    api_key: ${GROQ_API_KEY}
+    chat_base_url: https://api.groq.com/openai/v1
+    chat_model: llama-3.3-70b-versatile
+    enabled: false
+    response_timeout_sec: 10
+    temperature: 0.7
+    tools_enabled: false
+    type: openai
+  groq_stt:
+    capabilities:
+      - stt
+    type: groq
+    enabled: false
+    # API key comes from GROQ_API_KEY env var
+    stt_base_url: https://api.groq.com/openai/v1/audio/transcriptions
+    stt_model: whisper-large-v3-turbo
+    response_format: json
+    temperature: 0
+    request_timeout_sec: 15
+  groq_tts:
+    capabilities:
+      - tts
+    type: groq
+    enabled: false
+    # API key comes from GROQ_API_KEY env var
+    tts_base_url: https://api.groq.com/openai/v1/audio/speech
+    tts_model: canopylabs/orpheus-v1-english
+    voice: hannah
+    response_format: wav
+    max_input_chars: 200
+    target_encoding: mulaw
+    target_sample_rate_hz: 8000
+    chunk_size_ms: 20
+    request_timeout_sec: 15
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Azure Speech Service — STT & TTS (REST API)
+  # Requires AZURE_SPEECH_KEY in .env and a valid Azure region below.
+  # ─────────────────────────────────────────────────────────────────────────────
+  azure_stt:
+    type: azure
+    capabilities:
+      - stt
+    enabled: false
+    # Azure region (e.g. eastus, westeurope, southeastasia)
+    region: eastus
+    # BCP-47 recognition language
+    language: en-US
+    # 'realtime' = one-shot STT REST | 'fast' = Fast Transcription API
+    variant: realtime
+    request_timeout_sec: 15.0
+  azure_tts:
+    type: azure
+    capabilities:
+      - tts
+    enabled: false
+    region: eastus
+    # Neural voice name — see https://aka.ms/speech/voices
+    voice_name: en-US-JennyNeural
+    # Azure output format — telephony-optimised RIFF PCM (matches UI quick-add template)
+    output_format: riff-8khz-16bit-mono-pcm
+    target_encoding: mulaw
+    target_sample_rate_hz: 8000
+    chunk_size_ms: 20
+    request_timeout_sec: 15.0
+  minimax_llm:
+    capabilities:
+      - llm
+    chat_base_url: https://api.minimax.io/v1
+    # Domestic (China) URL: https://api.minimaxi.com/v1
+    chat_model: MiniMax-M2.7
+    # Alternatives: MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed
+    enabled: false
+    # API key comes from MINIMAX_API_KEY env var
+    temperature: 1.0
+    response_timeout_sec: 30
+    type: minimax
+  ollama_llm:
+    capabilities:
+      - llm
+    base_url: http://localhost:11434
+    model: llama3.2
+    enabled: false
+    temperature: 0.7
+    max_tokens: 200
+    timeout_sec: 60
+    tools_enabled: true
+    type: ollama
+  openai_realtime:
+    base_url: wss://api.openai.com/v1/realtime
+    capabilities:
+      - stt
+      - llm
+      - tts
+    continuous_input: true
+    egress_pacer_enabled: false
+    egress_pacer_warmup_ms: 320
+    enabled: false
+    greeting: Hello, how can I help you today?
+    input_encoding: ulaw
+    input_gain_max_db: 0
+    input_gain_target_rms: 0
+    input_sample_rate_hz: 8000
+    instructions: You are a voice assistant. Always speak your responses out loud.
+    max_response_output_tokens: 4096
+    api_version: beta
+    model: gpt-4o-realtime-preview-2024-12-17
+    organization: ''
+    output_encoding: mulaw
+    output_sample_rate_hz: 24000
+    provider_input_encoding: linear16
+    provider_input_sample_rate_hz: 24000
+    response_modalities:
+      - audio
+      - text
+    target_encoding: mulaw
+    target_sample_rate_hz: 8000
+    temperature: 0.6
+    turn_detection:
+      create_response: true
+      prefix_padding_ms: 300
+      silence_duration_ms: 1000
+      threshold: 0.5
+      type: server_vad
+    type: openai_realtime
+    voice: alloy
+  elevenlabs_agent:
+    type: full
+    enabled: false
+    capabilities:
+      - stt
+      - llm
+      - tts
+    input_encoding: ulaw
+    input_sample_rate_hz: 8000
+    provider_input_encoding: pcm16
+    provider_input_sample_rate_hz: 16000
+    output_encoding: pcm16
+    output_sample_rate_hz: 16000
+    target_encoding: ulaw
+    target_sample_rate_hz: 8000
+    voice_id: uDsPstFWFBUXjIBimV7s
+    model_id: eleven_flash_v2_5
+    voice_settings:
+      stability: 0.5
+      similarity_boost: 0.75
+      style: 0
+      use_speaker_boost: true
+    greeting: Hello! I'm your ElevenLabs voice assistant. How can I help you today?
+    instructions: You are a helpful voice assistant. Be concise and friendly.
+    continuous_input: true
+    input_gain_target_rms: 0
+    input_gain_max_db: 0
+  # ElevenLabs TTS - Modular pipeline adapter for STT→LLM→TTS pipelines
+  # Use with pipelines (e.g., local_stt + openai_llm + elevenlabs_tts)
+  # Requires ELEVENLABS_API_KEY in .env
+  elevenlabs_tts:
+    type: elevenlabs
     enabled: true
     api_key: ${ELEVENLABS_API_KEY}
     voice_id: GOAZNavLupajyL3YafaD

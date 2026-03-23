@@ -17,12 +17,15 @@ from urllib.parse import urlparse
 from ..config import (
     AppConfig,
     PipelineEntry,
+    AzureSTTProviderConfig,
+    AzureTTSProviderConfig,
     DeepgramProviderConfig,
     ElevenLabsProviderConfig,
     GoogleProviderConfig,
     GroqSTTProviderConfig,
     GroqTTSProviderConfig,
     LocalProviderConfig,
+    MiniMaxLLMProviderConfig,
     OpenAIProviderConfig,
     TelnyxLLMProviderConfig,
 )
@@ -36,7 +39,9 @@ from .local import LocalLLMAdapter, LocalSTTAdapter, LocalTTSAdapter
 from .ollama import OllamaLLMAdapter
 from .openai import OpenAISTTAdapter, OpenAILLMAdapter, OpenAITTSAdapter
 from .groq import GroqSTTAdapter, GroqTTSAdapter
+from .minimax import MiniMaxLLMAdapter
 from .telnyx import TelnyxLLMAdapter
+from .azure import AzureSTTFastAdapter, AzureSTTRealtimeAdapter, AzureTTSAdapter
 
 logger = get_logger(__name__)
 
@@ -225,10 +230,13 @@ class PipelineOrchestrator:
         self._deepgram_provider_config: Optional[DeepgramProviderConfig] = self._hydrate_deepgram_config()
         self._openai_provider_config: Optional[OpenAIProviderConfig] = self._hydrate_openai_config()
         self._telnyx_llm_provider_config: Optional[TelnyxLLMProviderConfig] = self._hydrate_telnyx_llm_config()
+        self._minimax_llm_provider_config: Optional[MiniMaxLLMProviderConfig] = self._hydrate_minimax_llm_config()
         self._google_provider_config: Optional[GoogleProviderConfig] = self._hydrate_google_config()
         self._elevenlabs_provider_config: Optional[ElevenLabsProviderConfig] = self._hydrate_elevenlabs_config()
         self._groq_stt_provider_config: Optional[GroqSTTProviderConfig] = self._hydrate_groq_stt_config()
         self._groq_tts_provider_config: Optional[GroqTTSProviderConfig] = self._hydrate_groq_tts_config()
+        self._azure_stt_provider_config: Optional[AzureSTTProviderConfig] = self._hydrate_azure_stt_config()
+        self._azure_tts_provider_config: Optional[AzureTTSProviderConfig] = self._hydrate_azure_tts_config()
         self._register_builtin_factories()
 
         self._assignments: Dict[str, PipelineResolution] = {}
@@ -538,6 +546,21 @@ class PipelineOrchestrator:
         else:
             logger.debug("Telnyx LLM pipeline adapter not registered - API key unavailable or config missing")
 
+        if self._minimax_llm_provider_config:
+            llm_factory = self._make_minimax_llm_factory(self._minimax_llm_provider_config)
+            self.register_factory("minimax_llm", llm_factory)
+            try:
+                host = (urlparse(str(self._minimax_llm_provider_config.chat_base_url)).hostname or "").lower()
+            except Exception:
+                host = None
+            logger.info(
+                "MiniMax LLM pipeline adapter registered",
+                llm_factory="minimax_llm",
+                host=host,
+            )
+        else:
+            logger.debug("MiniMax LLM pipeline adapter not registered - API key unavailable or config missing")
+
         if self._google_provider_config:
             stt_factory = self._make_google_stt_factory(self._google_provider_config)
             llm_factory = self._make_google_llm_factory(self._google_provider_config)
@@ -612,6 +635,49 @@ class PipelineOrchestrator:
         )
 
         self._register_openai_compatible_llm_factories()
+
+        # Azure STT adapters
+        if self._azure_stt_provider_config:
+            fast_factory = self._make_azure_stt_fast_factory(self._azure_stt_provider_config)
+            realtime_factory = self._make_azure_stt_realtime_factory(self._azure_stt_provider_config)
+
+            self.register_factory("azure_stt_fast", fast_factory)
+            self.register_factory("azure_stt_realtime", realtime_factory)
+
+            # The 'azure_stt' alias routes to fast or realtime based on provider config variant
+            raw_variant = str(self._azure_stt_provider_config.variant or "realtime").strip().lower()
+            chosen_variant = raw_variant if raw_variant in {"fast", "realtime"} else "realtime"
+            if raw_variant not in {"fast", "realtime"}:
+                logger.warning(
+                    "Invalid Azure STT variant configured; defaulting alias to realtime",
+                    configured_variant=raw_variant,
+                )
+            alias_factory = fast_factory if chosen_variant == "fast" else realtime_factory
+            self.register_factory("azure_stt", alias_factory)
+
+            logger.info(
+                "Azure STT pipeline adapters registered",
+                stt_fast_factory="azure_stt_fast",
+                stt_realtime_factory="azure_stt_realtime",
+                stt_alias=f"azure_stt -> azure_stt_{chosen_variant}",
+                region=self._azure_stt_provider_config.region,
+                language=self._azure_stt_provider_config.language,
+            )
+        else:
+            logger.debug("Azure STT pipeline adapters not registered - API key unavailable or config missing")
+
+        # Azure TTS adapter
+        if self._azure_tts_provider_config:
+            tts_factory = self._make_azure_tts_factory(self._azure_tts_provider_config)
+            self.register_factory("azure_tts", tts_factory)
+            logger.info(
+                "Azure TTS pipeline adapter registered",
+                tts_factory="azure_tts",
+                region=self._azure_tts_provider_config.region,
+                voice=self._azure_tts_provider_config.voice_name,
+            )
+        else:
+            logger.debug("Azure TTS pipeline adapter not registered - API key unavailable or config missing")
 
 
     def _register_openai_compatible_llm_factories(self) -> None:
@@ -788,6 +854,22 @@ class PipelineOrchestrator:
                 component_key,
                 self.config,
                 TelnyxLLMProviderConfig(**config_payload),
+                options,
+            )
+
+        return factory
+
+    def _make_minimax_llm_factory(
+        self,
+        provider_config: MiniMaxLLMProviderConfig,
+    ) -> ComponentFactory:
+        config_payload = provider_config.model_dump()
+
+        def factory(component_key: str, options: Dict[str, Any]) -> Component:
+            return MiniMaxLLMAdapter(
+                component_key,
+                self.config,
+                MiniMaxLLMProviderConfig(**config_payload),
                 options,
             )
 
@@ -1098,6 +1180,49 @@ class PipelineOrchestrator:
 
         return config
 
+    def _hydrate_minimax_llm_config(self) -> Optional[MiniMaxLLMProviderConfig]:
+        providers = getattr(self.config, "providers", {}) or {}
+        raw = providers.get("minimax_llm") or providers.get("minimax")
+        merged: Dict[str, Any] = {}
+
+        if isinstance(raw, MiniMaxLLMProviderConfig):
+            merged.update(raw.model_dump())
+        elif isinstance(raw, dict):
+            merged.update(raw)
+
+        if not merged:
+            for _, cfg in providers.items():
+                if not isinstance(cfg, dict):
+                    continue
+                base = str(cfg.get("chat_base_url") or cfg.get("base_url") or "").strip()
+                try:
+                    host = (urlparse(base).hostname or "").lower()
+                except Exception:
+                    host = ""
+                if host in ("api.minimax.io", "api.minimaxi.com"):
+                    merged.update(cfg)
+                    break
+
+        if not merged:
+            return None
+
+        merged.setdefault("chat_base_url", "https://api.minimax.io/v1")
+
+        try:
+            config = MiniMaxLLMProviderConfig(**merged)
+        except Exception as exc:
+            logger.warning(
+                "Failed to hydrate MiniMax LLM provider config for pipelines",
+                error=str(exc),
+            )
+            return None
+
+        if not config.api_key:
+            logger.warning("MiniMax pipeline adapter requires MINIMAX_API_KEY; falling back to placeholder adapters")
+            return None
+
+        return config
+
     def _hydrate_groq_stt_config(self) -> Optional[GroqSTTProviderConfig]:
         providers = getattr(self.config, "providers", {}) or {}
         raw_config = providers.get("groq_stt")
@@ -1222,6 +1347,139 @@ class PipelineOrchestrator:
 
         return factory
 
+    # ------------------------------------------------------------------
+    # Azure Speech Service — hydration + factories
+    # ------------------------------------------------------------------
+
+    def _hydrate_azure_stt_config(self) -> Optional[AzureSTTProviderConfig]:
+        """Hydrate Azure STT provider config from YAML providers block."""
+        providers = getattr(self.config, "providers", {}) or {}
+        # Accept 'azure_stt', 'azure_stt_fast', 'azure_stt_realtime' as provider block names
+        raw_config = (
+            providers.get("azure_stt")
+            or providers.get("azure_stt_fast")
+            or providers.get("azure_stt_realtime")
+        )
+        if not raw_config:
+            return None
+        if isinstance(raw_config, AzureSTTProviderConfig):
+            config = raw_config
+        elif isinstance(raw_config, dict):
+            try:
+                config = AzureSTTProviderConfig(**raw_config)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to hydrate Azure STT provider config for pipelines",
+                    error=str(exc),
+                )
+                return None
+        else:
+            logger.warning(
+                "Unsupported Azure STT provider config type for pipelines",
+                config_type=type(raw_config).__name__,
+            )
+            return None
+
+        if not getattr(config, "enabled", True):
+            return None
+
+        if not config.api_key:
+            config.api_key = os.getenv("AZURE_SPEECH_KEY")
+
+        if not config.api_key:
+            logger.warning(
+                "Azure STT pipeline adapter requires AZURE_SPEECH_KEY; falling back to placeholder adapters"
+            )
+            return None
+
+        return config
+
+    def _hydrate_azure_tts_config(self) -> Optional[AzureTTSProviderConfig]:
+        """Hydrate Azure TTS provider config from YAML providers block."""
+        providers = getattr(self.config, "providers", {}) or {}
+        raw_config = providers.get("azure_tts")
+        if not raw_config:
+            return None
+        if isinstance(raw_config, AzureTTSProviderConfig):
+            config = raw_config
+        elif isinstance(raw_config, dict):
+            try:
+                config = AzureTTSProviderConfig(**raw_config)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to hydrate Azure TTS provider config for pipelines",
+                    error=str(exc),
+                )
+                return None
+        else:
+            logger.warning(
+                "Unsupported Azure TTS provider config type for pipelines",
+                config_type=type(raw_config).__name__,
+            )
+            return None
+
+        if not getattr(config, "enabled", True):
+            return None
+
+        if not config.api_key:
+            config.api_key = os.getenv("AZURE_SPEECH_KEY")
+
+        if not config.api_key:
+            logger.warning(
+                "Azure TTS pipeline adapter requires AZURE_SPEECH_KEY; falling back to placeholder adapters"
+            )
+            return None
+
+        return config
+
+    def _make_azure_stt_fast_factory(
+        self,
+        provider_config: AzureSTTProviderConfig,
+    ) -> ComponentFactory:
+        config_payload = provider_config.model_dump()
+
+        def factory(component_key: str, options: Dict[str, Any]) -> Component:
+            return AzureSTTFastAdapter(
+                component_key,
+                self.config,
+                AzureSTTProviderConfig(**config_payload),
+                options,
+            )
+
+        return factory
+
+    def _make_azure_stt_realtime_factory(
+        self,
+        provider_config: AzureSTTProviderConfig,
+    ) -> ComponentFactory:
+        config_payload = provider_config.model_dump()
+
+        def factory(component_key: str, options: Dict[str, Any]) -> Component:
+            return AzureSTTRealtimeAdapter(
+                component_key,
+                self.config,
+                AzureSTTProviderConfig(**config_payload),
+                options,
+            )
+
+        return factory
+
+    def _make_azure_tts_factory(
+        self,
+        provider_config: AzureTTSProviderConfig,
+    ) -> ComponentFactory:
+        config_payload = provider_config.model_dump()
+
+        def factory(component_key: str, options: Dict[str, Any]) -> Component:
+            return AzureTTSAdapter(
+                component_key,
+                self.config,
+                AzureTTSProviderConfig(**config_payload),
+                options,
+            )
+
+        return factory
+
     def _resolve_factory(self, component_key: str) -> ComponentFactory:
         factory = self._registry.get(component_key)
         if factory:
@@ -1282,6 +1540,8 @@ class PipelineOrchestrator:
             hints.append("Set GROQ_API_KEY and configure providers.groq_stt/providers.groq_tts.")
         elif provider in ("telnyx", "telenyx"):
             hints.append("Set TELNYX_API_KEY and configure providers.telnyx_llm.")
+        elif provider == "minimax":
+            hints.append("Set MINIMAX_API_KEY and configure providers.minimax_llm.")
 
         hint = f" Hint: {' '.join(hints)}" if hints else ""
         return f"Pipeline '{pipeline_name}' cannot resolve {role} component '{component_key}' (placeholder adapter).{hint}"
