@@ -8,16 +8,17 @@ external_media:
   port_range: 18080:18099
   rtp_host: 0.0.0.0
   rtp_port: 18080
-downstream_mode: stream
+downstream_mode: file
 contexts:
   default:
-    greeting: Buongiorno, come posso aiutarla?
+    greeting: Buongiorno, TecnoADSL. Come posso aiutarla?
     profile: telephony_ulaw_8k
     prompt: |
       Operatore servizio clienti TecnoADSL (provider internet, Umbria, Toscana, Marche, Sardegna). Canale: voice
 
-      SEI AUTORIZZATO SOLO A 1 ATTIVITÀ DIRETTA:
+      SEI AUTORIZZATO SOLO A 2 ATTIVITÀ DIRETTE:
       1. Apertura segnalazione guasto/problema
+      2. Verifica copertura/attivazione
 
       Per QUALSIASI altra richiesta: chiedi il nome, un recapito telefonico e un breve riepilogo, poi chiama forward_request con nome e riepilogo.
       - Lunedì-Venerdì feriali: "Ho inoltrato la Sua richiesta. Un operatore La contatterà a breve."
@@ -35,14 +36,24 @@ contexts:
 
       ATTIVITÀ 1 — SEGNALAZIONE GUASTO:
       - Cliente segnala guasto/problema: chiedi nome e recapito telefonico, poi chiama open_ticket con nome, telefono e descrizione del problema.
-      - Dopo open_ticket, comunica il numero ticket al cliente.
-      - Poi chiedi: "Desidera ricevere conferma via email? Se sì, mi indichi il Suo indirizzo email."
-      - Se il cliente fornisce email: chiama send_confirmation(ticket_number, customer_email, customer_name). Poi saluta.
-      - Se il cliente rifiuta: saluta direttamente.
+      - Dopo open_ticket, comunica il numero ticket e saluta: "[Nome], segnalazione numero [numero] aperta. Un tecnico La ricontatterà il prima possibile. Buona giornata."
 
       ---
 
-      QUALSIASI ALTRA RICHIESTA:
+      ATTIVITÀ 2 — VERIFICA COPERTURA (flusso obbligatorio in 3 step):
+
+      STEP 1: Chiedi solo il COMUNE. Chiama check_coverage(city). NON dire se è coperto. Rispondi SOLO: "Mi indica la via?"
+      STEP 2: Il cliente dà la VIA. Chiama check_coverage(city, street). NON dire se è coperto. Rispondi SOLO: "Mi indica il numero civico?"
+      STEP 3: Il cliente dà il CIVICO. Chiama check_coverage(city, street, civic). ORA puoi comunicare il risultato completo con tecnologie e velocità. Saluta.
+
+      REGOLE COPERTURA TASSATIVE:
+      - NON saltare step. NON chiedere via e civico insieme.
+      - NON dire "coperta", "coperto", "disponibile" prima dello STEP 3.
+      - Allo STEP 2 DEVI sempre terminare con la domanda sul civico.
+
+      ---
+
+      ATTIVITÀ 3 — QUALSIASI ALTRA RICHIESTA:
       - Chiedi nome, recapito telefonico e cosa serve.
       - Chiama forward_request(customer_name, request_summary).
       - Rispondi con il messaggio appropriato (feriale/festivo).
@@ -52,24 +63,24 @@ contexts:
 
       FLUSSO GENERALE:
       1. Capire cosa serve (1 domanda max)
-      2. Se segnalazione: nome + telefono → open_ticket → numero ticket → chiedi email → send_confirmation se data → saluta
-      3. Qualsiasi altra cosa: nome + telefono + riepilogo → forward_request → messaggio appropriato → saluta
+      2. Se segnalazione: nome + telefono → open_ticket → numero ticket → saluta
+      3. Se copertura: seguire i 3 step tassativi
+      4. Qualsiasi altra cosa: nome + telefono + riepilogo → forward_request → messaggio appropriato → saluta
     tools_enabled: true
     tools:
     - open_ticket
+    - check_coverage
     - forward_request
     - live_agent_transfer
     - hangup_call
-    - send_confirmation
 barge_in:
   enabled: true
-  energy_threshold: 30000
-  initial_protection_ms: 500
+  energy_threshold: 700
+  initial_protection_ms: 100
   min_ms: 150
   post_tts_end_protection_ms: 100
 vad:
-  energy_threshold: 300
-  enhanced_enabled: false
+  enhanced_enabled: true
   fallback_buffer_size: 128000
   fallback_enabled: true
   fallback_interval_ms: 4000
@@ -77,8 +88,8 @@ vad:
   min_utterance_duration_ms: 600
   use_provider_vad: false
   utterance_padding_ms: 200
-  webrtc_aggressiveness: 0
-  webrtc_end_silence_frames: 75
+  webrtc_aggressiveness: 1
+  webrtc_end_silence_frames: 50
   webrtc_start_frames: 3
 streaming:
   chunk_size_ms: 20
@@ -93,7 +104,7 @@ streaming:
   min_start_ms: 120
   normalizer:
     enabled: true
-    max_gain_db: 24.0
+    max_gain_db: 18.0
     target_rms: 1400
   provider_grace_ms: 500
   sample_rate: 8000
@@ -149,7 +160,7 @@ pipelines:
       llm:
         chat_base_url: http://127.0.0.1:4001/v1
         api_key: sk-tecnoadsl-master-2026
-        chat_model: claude-sonnet
+        chat_model: claude-haiku
         max_tokens: 150
         temperature: 0.3
         tools_enabled: true
@@ -212,7 +223,7 @@ providers:
     - llm
     api_key: sk-tecnoadsl-master-2026
     chat_base_url: http://127.0.0.1:4001/v1
-    chat_model: claude-sonnet
+    chat_model: claude-haiku
     enabled: true
     response_timeout_sec: 15
     temperature: 0.3
@@ -371,7 +382,7 @@ providers:
     stability: 0.5
     similarity_boost: 0.75
 llm:
-  initial_greeting: Buongiorno, come posso aiutarla?
+  initial_greeting: Buongiorno, benvenuto in TecnoADSL. Come posso aiutarla?
   prompt: Assistente telefonico TecnoADSL. Rispondi in italiano, in modo breve e cordiale. Dai del Lei. Massimo 1-2 frasi.
 asterisk:
   app_name: asterisk-ai-voice-agent
@@ -392,16 +403,28 @@ tools:
       Content-Type: application/json
       X-API-Key: tna_default_key_2026
     payload_template: "{\n        \"schema_version\": 1,\n        \"event_type\": \"call_completed\",\n        \"call_id\": \"{call_id}\",\n        \"caller_number\": \"{caller_number}\",\n        \"caller_name\": \"{caller_name}\",\n        \"call_duration\": {call_duration},\n        \"call_outcome\": \"{call_outcome}\",\n        \"transcript\": {transcript_json},\n        \"context\": \"{context_name}\",\n        \"pipeline\": \"{provider}\",\n        \"timestamp\": \"{call_end_time}\"\n    }"
+  n8n_voice_ticket:
+    kind: generic_webhook
+    phase: post_call
+    enabled: true
+    is_global: true
+    timeout_ms: 10000
+    url: http://172.17.0.1:5678/webhook/voice-ticket
+    method: POST
+    headers:
+      Content-Type: application/json
+    payload_template: "{\n        \"call_id\": \"{call_id}\",\n        \"caller_number\": \"{caller_number}\",\n        \"caller_name\": \"{caller_name}\",\n        \"duration\": {call_duration},\n        \"outcome\": \"{call_outcome}\",\n        \"transcript\": {transcript_json},\n        \"context\": \"{context_name}\",\n        \"timestamp\": \"{call_end_time}\"\n    }"
 in_call_tools:
   open_ticket:
     kind: in_call_http_lookup
     enabled: true
     description: Apri un ticket di segnalazione guasto per il cliente. Usa questo tool dopo aver raccolto nome e recapito telefonico del cliente.
     timeout_ms: 8000
-    url: http://172.17.0.1:8081/api/tickets/open
+    url: http://172.17.0.1:5678/webhook/voice-ticket
     method: POST
     headers:
       Content-Type: application/json
+      x-api-key: jsC1_xwLiF1rykWThiTWy11fltIL0IrI7eWpvquHa_A
     body_template: "{\n  \"caller_number\": \"{caller_number}\",\n  \"customer_name\": \"{customer_name}\",\n  \"contact_phone\": \"{contact_phone}\",\n  \"problem_type\": \"{problem_type}\",\n  \"problem_since\": \"{problem_since}\",\n  \"customer_code\": \"{customer_code}\",\n  \"notes\": \"{notes}\"\n}\n"
     parameters:
     - name: customer_name
@@ -430,12 +453,37 @@ in_call_tools:
       required: false
     return_raw_json: true
     error_message: Non sono riuscito ad aprire la segnalazione. La passo a un operatore.
+  check_coverage:
+    kind: in_call_http_lookup
+    enabled: true
+    description: Verifica la copertura fibra/internet a un indirizzo. Chiamalo progressivamente, prima solo il comune, poi comune+via, poi comune+via+civico.
+    timeout_ms: 8000
+    url: https://api.dev.tecnoadsl.it/coverage-check.php
+    method: POST
+    headers:
+      Content-Type: application/json
+    body_template: "{\"address\":{\"city\":\"{city}\",\"street\":\"{street}\",\"civic\":\"{civic}\"}}"
+    parameters:
+    - name: city
+      type: string
+      description: Comune del cliente (es. Perugia, Foligno, Terni)
+      required: true
+    - name: street
+      type: string
+      description: Solo nome via senza civico (es. Via Roma). Ometti al primo step.
+      required: false
+    - name: civic
+      type: string
+      description: Numero civico (es. 15). Ometti fino al terzo step.
+      required: false
+    return_raw_json: true
+    error_message: Non riesco a verificare la copertura al momento. La passo a un operatore.
   forward_request:
     kind: in_call_http_lookup
     enabled: true
     description: Inoltra una richiesta generica del cliente (non guasto, non copertura) al reparto competente. Usa dopo aver raccolto nome, telefono e riepilogo.
     timeout_ms: 8000
-    url: http://172.17.0.1:8081/api/tickets/forward-request
+    url: http://172.17.0.1:8080/api/tickets/forward-request
     method: POST
     headers:
       Content-Type: application/json
@@ -455,28 +503,3 @@ in_call_tools:
       required: true
     return_raw_json: true
     error_message: Non sono riuscito a inoltrare la richiesta. La passo a un operatore.
-  send_confirmation:
-    kind: in_call_http_lookup
-    enabled: true
-    description: Invia email di conferma ticket al cliente
-    timeout_ms: 8000
-    url: http://172.17.0.1:8081/api/tickets/send-confirmation
-    method: POST
-    headers:
-      Content-Type: application/json
-    body_template: "{\n  \"ticket_number\": \"{ticket_number}\",\n  \"customer_email\": \"{customer_email}\",\n  \"customer_name\": \"{customer_name}\"\n}\n"
-    parameters:
-    - name: ticket_number
-      type: string
-      description: Numero del ticket appena aperto
-      required: true
-    - name: customer_email
-      type: string
-      description: Indirizzo email del cliente
-      required: true
-    - name: customer_name
-      type: string
-      description: Nome e cognome del cliente
-      required: true
-    return_raw_json: true
-    error_message: Non sono riuscito a inviare la conferma email. Il ticket resta comunque aperto.

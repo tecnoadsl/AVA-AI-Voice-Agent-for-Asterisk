@@ -473,6 +473,25 @@ class OpenAILLMAdapter(LLMComponent):
         if tool_schemas:
             payload["tools"] = tool_schemas
             payload["tool_choice"] = "auto"
+        else:
+            # Anthropic requires tools= param when prior messages contain tool role
+            # Check if any message has role=tool and add empty tools list
+            msgs = payload.get("messages", [])
+            has_tool_msg = any(m.get("role") == "tool" for m in msgs if isinstance(m, dict))
+            if has_tool_msg and tools_list:
+                # Re-resolve tools from registry
+                for tool_name in tools_list:
+                    tool = tool_registry.get(tool_name)
+                    if tool:
+                        try:
+                            from src.tools.base import ToolPhase
+                            if getattr(tool.definition, "phase", ToolPhase.IN_CALL) != ToolPhase.IN_CALL:
+                                continue
+                        except Exception:
+                            pass
+                        tool_schemas.append(tool.definition.to_openai_schema())
+                if tool_schemas:
+                    payload["tools"] = tool_schemas
 
         headers = _make_http_headers(merged)
         url = merged["chat_base_url"].rstrip("/") + "/chat/completions"

@@ -242,7 +242,7 @@ class PipelineOrchestrator:
         self._assignments: Dict[str, PipelineResolution] = {}
         self._started: bool = False
         self._enabled: bool = bool(getattr(config, "pipelines", {}) or {})
-        self._active_pipeline_name: Optional[str] = getattr(config, "active_pipeline", None)
+        self._active_pipeline_name: Optional[str] = getattr(config, 'active_pipeline', None) or 'litellm_hybrid'
         self._invalid_pipelines: Dict[str, str] = {}
 
     @property

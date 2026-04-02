@@ -307,14 +307,14 @@ class PlaybackManager:
             # No chown needed - appuser is member of asterisk group
             # Leave file permissions to host/umask; avoid chmod here (CodeQL).
             
-            logger.debug("Audio file created",
+            logger.info("Audio file created",
                         file_path=file_path,
                         size=len(audio_bytes))
             
             return file_path
             
         except Exception as e:
-            logger.error("Error creating audio file",
+            logger.error("CRITICAL: Error creating audio file",
                         playback_id=playback_id,
                         error=str(e),
                         exc_info=True)

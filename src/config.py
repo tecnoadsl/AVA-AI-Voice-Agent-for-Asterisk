@@ -767,7 +767,7 @@ def _normalize_pipelines(config_data: Dict[str, Any]) -> None:
         raise TypeError(f"Unsupported pipeline definition for '{pipeline_name}': {type(raw_entry).__name__}")
 
     config_data["pipelines"] = normalized
-    config_data.setdefault("active_pipeline", next(iter(normalized.keys())))
+    # config_data.setdefault("active_pipeline", next(iter(normalized.keys())))
 
 
 class AppConfig(BaseModel):
@@ -842,7 +842,7 @@ def _generate_default_pipeline(config_data: Dict[str, Any]) -> None:
     else:
         pipelines[pipeline_name] = _compose_provider_components(default_provider)
 
-    config_data.setdefault("active_pipeline", pipeline_name)
+    # config_data.setdefault("active_pipeline", pipeline_name)
 
 
 def load_config(path: str = "config/ai-agent.yaml") -> AppConfig:

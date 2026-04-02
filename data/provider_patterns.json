@@ -1,0 +1,23 @@
+{
+  "local_hybrid_ollama@8000Hz": {
+    "type": "moderate",
+    "mean_interval_ms": 0.05400398422429227,
+    "max_gap_ms": 397.3410129547119,
+    "variance": 0.15005964208114525,
+    "optimal_buffer_ms": 40
+  },
+  "pipeline@8000Hz": {
+    "type": "moderate",
+    "mean_interval_ms": 0.05035688842741205,
+    "max_gap_ms": 21.774768829345703,
+    "variance": 0.0005637477088388626,
+    "optimal_buffer_ms": 40
+  },
+  "litellm_hybrid@8000Hz": {
+    "type": "moderate",
+    "mean_interval_ms": 0.048691752036911416,
+    "max_gap_ms": 21.052122116088867,
+    "variance": 0.019745291412769435,
+    "optimal_buffer_ms": 40
+  }
+}

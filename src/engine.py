@@ -4877,6 +4877,16 @@ class Engine:
                 logger.debug("Failed to emit RCA_CALL_END", call_id=call_id, exc_info=True)
 
             logger.info("Call cleanup completed", call_id=call_id)
+            # Push full conversation to gateway at call end
+            try:
+                conv = getattr(session, 'conversation_history', []) or []
+                for turn in conv:
+                    asyncio.ensure_future(self._push_transcript_to_gateway(
+                        call_id, turn.get("role", "user"), turn.get("content", ""),
+                        getattr(session, 'caller_number', None)
+                    ))
+            except Exception:
+                pass
         except Exception as exc:
             logger.error("Error cleaning up call", identifier=channel_or_call_id, error=str(exc), exc_info=True)
         finally:
@@ -9031,6 +9041,7 @@ class Engine:
                 llm_options = dict(llm_options)
                 if allowed_tools:
                     llm_options["tools"] = allowed_tools
+                    session._resolved_tools = allowed_tools
                 else:
                     llm_options.pop("tools", None)
 
@@ -9649,8 +9660,10 @@ class Engine:
                     
                     # Update conversation history
                     conversation_history.append({"role": "user", "content": transcript_text})
+                    asyncio.ensure_future(self._push_transcript_to_gateway(call_id, "user", transcript_text, getattr(session, 'caller_number', None)))
                     if response_text:
                         conversation_history.append({"role": "assistant", "content": response_text})
+                        asyncio.ensure_future(self._push_transcript_to_gateway(call_id, "assistant", response_text, getattr(session, 'caller_number', None)))
                     elif tool_calls:
                         conversation_history.append({"role": "assistant", "content": "(tool execution)"})
                     
@@ -9963,11 +9976,18 @@ class Engine:
                                         # Trigger LLM to generate follow-up response
                                         try:
                                             context_for_llm = {"prior_messages": list(conversation_history)}
+                                            # Ensure tools are passed in continuation (required by Anthropic/Claude)
+                                            continuation_options = dict(pipeline.llm_options or {})
+                                            if 'tools' not in continuation_options:
+                                                # Re-use tools from the original call setup
+                                                ctx_tools = getattr(session, '_resolved_tools', None)
+                                                if ctx_tools:
+                                                    continuation_options['tools'] = ctx_tools
                                             llm_response = await pipeline.llm_adapter.generate(
                                                 call_id,
                                                 "",  # Empty transcript - tool result already in context
                                                 context_for_llm,
-                                                pipeline.llm_options
+                                                continuation_options
                                             )
                                             if llm_response:
                                                 # Handle text response if present
@@ -9977,20 +9997,27 @@ class Engine:
                                                         conversation_history.append({"role": "assistant", "content": response_text})
                                                         logger.info("LLM continuation response", preview=response_text[:80], call_id=call_id)
                                                         
-                                                        # Synthesize and play TTS
-                                                        tts_bytes = bytearray()
-                                                        async for chunk in pipeline.tts_adapter.synthesize(call_id, response_text, pipeline.tts_options):
-                                                            if chunk:
-                                                                tts_bytes.extend(chunk)
-                                                        if tts_bytes:
-                                                            pid = await self.playback_manager.play_audio(call_id, bytes(tts_bytes), "pipeline-tts")
-                                                            duration_sec = len(tts_bytes) / 8000.0
-                                                            if pid:
-                                                                await self.playback_manager.wait_for_playback_end(
-                                                                    call_id,
-                                                                    pid,
-                                                                    timeout_sec=(duration_sec + 3.0),
-                                                                )
+                                                        # Synthesize and stream TTS (same as greeting)
+                                                        tts_encoding = getattr(pipeline, "_tts_encoding", "mulaw")
+                                                        tts_rate = getattr(pipeline, "_tts_sample_rate", 8000)
+                                                        cont_q = asyncio.Queue(maxsize=256)
+                                                        cont_stream_id = await self.streaming_playback_manager.start_streaming_playback(
+                                                            call_id,
+                                                            cont_q,
+                                                            playback_type="pipeline-tts-continuation",
+                                                            source_encoding=tts_encoding,
+                                                            source_sample_rate=tts_rate,
+                                                        )
+                                                        if cont_stream_id:
+                                                            async for chunk in pipeline.tts_adapter.synthesize(call_id, response_text, pipeline.tts_options):
+                                                                if chunk:
+                                                                    await cont_q.put(chunk)
+                                                            try:
+                                                                cont_q.put_nowait(None)
+                                                            except asyncio.QueueFull:
+                                                                await cont_q.put(None)
+                                                        else:
+                                                            logger.error("Failed to start continuation streaming", call_id=call_id)
                                                 
                                                 # Handle tool calls (with or without text)
                                                 if getattr(llm_response, 'tool_calls', None):
