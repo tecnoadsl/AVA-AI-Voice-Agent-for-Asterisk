@@ -35,6 +35,7 @@ class ToolExecutionContext:
     # System access (injected by provider)
     session_store: Any = None  # SessionStore instance
     esl_client: Any = None       # ESLInboundClient instance (FreeSWITCH ESL)
+    ari_client: Any = None       # ARICompatClient wrapping ESL (compat shim for telephony tools)
     config: Any = None           # Config dict
     domain_name: Optional[str] = None  # FusionPBX domain (e.g. "example.voip6.tecnoadsl.net")
     outbound_call: Any = None    # Optional outbound call handle
@@ -187,7 +188,7 @@ class PreCallContext:
     campaign_id: Optional[str] = None
     lead_id: Optional[str] = None
     
-    # Channel variables from Asterisk
+    # Channel variables from FreeSWITCH
     channel_vars: Dict[str, str] = field(default_factory=dict)
     
     # System access

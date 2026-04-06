@@ -88,7 +88,7 @@ class OpenAIToolAdapter:
                 - caller_channel_id
                 - bridge_id
                 - session_store
-                - ari_client
+                - ari_client (ARICompatClient wrapping ESL)
                 - config
         
         Returns:

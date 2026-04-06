@@ -230,7 +230,7 @@ class TransportOrchestrator:
         Args:
             provider_name: Selected provider (deepgram, openai_realtime, etc.)
             provider_caps: Provider capabilities (static or from ACK)
-            channel_vars: Asterisk channel variables (AI_PROVIDER, AI_AUDIO_PROFILE, AI_CONTEXT)
+            channel_vars: FreeSWITCH channel variables (AI_PROVIDER, AI_AUDIO_PROFILE, AI_CONTEXT)
             provider_config: Provider configuration
         
         Returns:

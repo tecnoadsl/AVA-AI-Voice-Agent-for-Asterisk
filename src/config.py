@@ -1,5 +1,5 @@
 """
-Shared Configuration System for Asterisk AI Voice Agent v2.0
+Shared Configuration System for FusionPBX AI Voice Agent v2.0
 
 This module provides centralized configuration management for all microservices
 using Pydantic v2 for validation and type safety.

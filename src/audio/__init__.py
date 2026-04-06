@@ -1,5 +1,5 @@
 """
-Audio processing utilities for the Asterisk AI Voice Agent.
+Audio processing utilities for the FusionPBX AI Voice Agent.
 
 This package contains audio processing helpers and utilities.
 """

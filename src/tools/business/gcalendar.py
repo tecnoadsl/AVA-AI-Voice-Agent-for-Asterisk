@@ -1,5 +1,5 @@
 """
-Low-level Google Calendar API client for the Asterisk AI Voice Agent.
+Low-level Google Calendar API client for the FusionPBX AI Voice Agent.
 
 Provides GCalendar class for listing, getting, creating, and deleting events
 using service account credentials. Used by the google_calendar tool (gcal_tool).

@@ -50,7 +50,7 @@ class TransferToQueueTool(Tool):
         Execute queue transfer.
         
         Workflow:
-        1. Resolve queue name to Asterisk queue
+        1. Resolve queue name to FreeSWITCH queue
         2. Check queue status (optional)
         3. Add caller to queue via dialplan continuation
         4. Update session state
@@ -96,7 +96,7 @@ class TransferToQueueTool(Tool):
         )
         
         try:
-            # 1. Resolve queue name to Asterisk queue configuration
+            # 1. Resolve queue name to FreeSWITCH queue configuration
             queue_config = self._resolve_queue(queue_name, context)
             if not queue_config:
                 return {
@@ -225,7 +225,7 @@ class TransferToQueueTool(Tool):
         we return defaults.
         
         Args:
-            asterisk_queue: Asterisk queue name
+            asterisk_queue: FreeSWITCH queue name (field name kept for config compat)
             context: Tool execution context
         
         Returns:
@@ -236,9 +236,8 @@ class TransferToQueueTool(Tool):
             }
         """
         try:
-            # In a real implementation, you would query Asterisk ARI for queue stats
-            # For now, return defaults since ARI doesn't expose queue stats directly
-            # You'd need to use AMI (Asterisk Manager Interface) or custom events
+            # In a real implementation, you would query FreeSWITCH ESL for queue stats
+            # For now, return defaults; ESL mod_callcenter events can be used in future
             
             # Placeholder for future implementation
             return {

@@ -77,7 +77,7 @@ def _make_http_headers(api_key: str) -> Dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "User-Agent": "Asterisk-AI-Voice-Agent/1.0",
+        "User-Agent": "AVA-FusionPBX/1.0",
     }
 
 

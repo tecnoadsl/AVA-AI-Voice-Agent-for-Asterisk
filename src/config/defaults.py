@@ -40,7 +40,7 @@ def apply_audiosocket_defaults(config_data: Dict[str, Any]) -> None:
     
     Sets:
     - host: AudioSocket server bind address (default: 127.0.0.1)
-    - advertise_host: IP Asterisk connects to (default: None, falls back to host)
+    - advertise_host: IP FreeSWITCH connects to (default: None, falls back to host)
     - port: AudioSocket server port (default: 8090)
     - format: Audio format for AudioSocket payload (default: ulaw)
     
@@ -60,7 +60,7 @@ def apply_audiosocket_defaults(config_data: Dict[str, Any]) -> None:
     # Host default (bind address)
     audiosocket_cfg.setdefault('host', os.getenv('AUDIOSOCKET_HOST', '127.0.0.1'))
     
-    # Advertise host (for NAT/VPN - IP Asterisk connects to)
+    # Advertise host (for NAT/VPN - IP FreeSWITCH connects to)
     # Only set if env var is present and non-empty; otherwise leave as None (engine will fall back to host)
     advertise_host = os.getenv('AUDIOSOCKET_ADVERTISE_HOST', '').strip()
     if advertise_host:
@@ -85,7 +85,7 @@ def apply_externalmedia_defaults(config_data: Dict[str, Any]) -> None:
     
     Sets:
     - rtp_host: RTP server bind address (default: 127.0.0.1)
-    - advertise_host: IP Asterisk sends RTP to (default: None, falls back to rtp_host)
+    - advertise_host: IP FreeSWITCH sends RTP to (default: None, falls back to rtp_host)
     
     Environment variables:
     - EXTERNAL_MEDIA_RTP_HOST: Override RTP bind address
@@ -99,7 +99,7 @@ def apply_externalmedia_defaults(config_data: Dict[str, Any]) -> None:
     external_cfg = config_data.get('external_media', {}) or {}
     external_cfg.setdefault('rtp_host', os.getenv('EXTERNAL_MEDIA_RTP_HOST', external_cfg.get('rtp_host', '127.0.0.1')))
     
-    # Advertise host (for NAT/VPN - IP Asterisk sends RTP to)
+    # Advertise host (for NAT/VPN - IP FreeSWITCH sends RTP to)
     # Only set if env var is present and non-empty; otherwise leave as None (engine will fall back to rtp_host)
     advertise_host = os.getenv('EXTERNAL_MEDIA_ADVERTISE_HOST', '').strip()
     if advertise_host:

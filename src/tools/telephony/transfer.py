@@ -218,7 +218,7 @@ class TransferCallTool(Tool):
         context: ToolExecutionContext
     ) -> Dict[str, Any]:
         """
-        Execute warm transfer using direct SIP origination via ARI.
+        Execute warm transfer using direct SIP origination via ESL.
         
         Workflow:
         1. Resolve target to extension
@@ -249,8 +249,7 @@ class TransferCallTool(Tool):
             }
         
         # 1. For warm transfers, DON'T start MOH - let AI talk to caller
-        # Starting MOH causes bridge to break when ;1 leg enters Stasis
-        # because Asterisk auto-stops MOH on answer, removing channels from bridge
+        # Starting MOH may interfere with FreeSWITCH bridge when answer event fires
         logger.info(f"⏳ Warm transfer: AI continues conversation, no MOH",
                    call_id=context.call_id,
                    target=extension)
@@ -423,7 +422,7 @@ class TransferCallTool(Tool):
             session: Call session
             transfer_context: Context to pass
             timeout: Origination timeout
-            ari_client: ARI client
+            esl_client: ESL client (via ARI compat shim)
         
         Returns:
             Channel dict if originated, None if failed
@@ -463,7 +462,7 @@ class TransferCallTool(Tool):
                 },
                 params={
                     # SIP channel enters Stasis on answer with these args
-                    "app": "asterisk-ai-voice-agent",
+                    "app": "ava-fusionpbx",
                     "appArgs": f"warm-transfer,{session.call_id},{target}"
                 }
             )

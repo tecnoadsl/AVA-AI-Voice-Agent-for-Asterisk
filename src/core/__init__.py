@@ -1,5 +1,5 @@
 """
-Core modules for the Asterisk AI Voice Agent.
+Core modules for the FusionPBX AI Voice Agent.
 
 This package contains the centralized state management and playback
 management components that replace the dict soup in the original engine.

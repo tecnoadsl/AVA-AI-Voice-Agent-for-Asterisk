@@ -2,7 +2,7 @@
 Security-critical configuration injection.
 
 This module handles:
-- Asterisk credentials (ONLY from environment variables)
+- FreeSWITCH/ESL credentials (ONLY from environment variables)
 - LLM configuration merge (YAML + environment variables)
 - Provider API key injection (ONLY from environment variables)
 - Environment variable token expansion
@@ -63,7 +63,7 @@ def expand_string_tokens(value: str) -> str:
 
 def inject_asterisk_credentials(config_data: Dict[str, Any]) -> None:
     """
-    Inject Asterisk credentials from environment variables ONLY.
+    Inject FreeSWITCH/ESL credentials from environment variables ONLY.
     
     SECURITY: Credentials must NEVER be in YAML files.
     This function overwrites any YAML values with environment variables.

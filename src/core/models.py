@@ -1,5 +1,5 @@
 """
-Core data models for the Asterisk AI Voice Agent.
+Core data models for the FusionPBX AI Voice Agent.
 
 This module defines the typed data structures that replace the dict soup
 in the original engine.py implementation.

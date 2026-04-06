@@ -252,7 +252,7 @@ class DeepgramSTTAdapter(STTComponent):
         headers = {
             "Authorization": f"Token {merged.get('api_key')}",
             "Content-Type": content_type,
-            "User-Agent": "Asterisk-AI-Voice-Agent/1.0",
+            "User-Agent": "AVA-FusionPBX/1.0",
         }
 
         logger.debug(
@@ -413,7 +413,7 @@ class DeepgramSTTAdapter(STTComponent):
 
         headers = [
             ("Authorization", f"Token {api_key}"),
-            ("User-Agent", "Asterisk-AI-Voice-Agent/1.0"),
+            ("User-Agent", "AVA-FusionPBX/1.0"),
         ]
 
         try:

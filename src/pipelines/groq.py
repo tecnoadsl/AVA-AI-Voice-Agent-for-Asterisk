@@ -253,7 +253,7 @@ class GroqSTTAdapter(STTComponent):
 
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "Asterisk-AI-Voice-Agent/1.0",
+            "User-Agent": "AVA-FusionPBX/1.0",
         }
 
         url = merged.get("stt_base_url") or merged.get("base_url") or self._provider_defaults.stt_base_url
@@ -438,7 +438,7 @@ class GroqTTSAdapter(TTSComponent):
         headers = {
             "Authorization": f"Bearer {merged['api_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "Asterisk-AI-Voice-Agent/1.0",
+            "User-Agent": "AVA-FusionPBX/1.0",
         }
 
         logger.info(

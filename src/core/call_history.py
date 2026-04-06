@@ -290,10 +290,10 @@ class CallHistoryStore:
     
     async def get_by_call_id(self, call_id: str) -> Optional[CallRecord]:
         """
-        Get a call record by Asterisk call ID.
-        
+        Get a call record by FreeSWITCH call ID.
+
         Args:
-            call_id: Asterisk channel ID
+            call_id: FreeSWITCH channel UUID
             
         Returns:
             CallRecord if found, None otherwise

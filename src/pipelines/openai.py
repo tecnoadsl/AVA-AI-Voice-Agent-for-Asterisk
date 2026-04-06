@@ -71,7 +71,7 @@ def _chunk_audio(audio_bytes: bytes, encoding: str, sample_rate: int, chunk_ms: 
 def _make_ws_headers(options: Dict[str, Any]) -> Iterable[tuple[str, str]]:
     headers = [
         ("Authorization", f"Bearer {options['api_key']}"),
-        ("User-Agent", "Asterisk-AI-Voice-Agent/1.0"),
+        ("User-Agent", "AVA-FusionPBX/1.0"),
     ]
     if options.get("api_version", "ga").lower() == "beta":
         headers.append(("OpenAI-Beta", "realtime=v1"))
@@ -86,7 +86,7 @@ def _make_http_headers(options: Dict[str, Any]) -> Dict[str, str]:
     headers = {
         "Authorization": f"Bearer {options['api_key']}",
         "Content-Type": "application/json",
-        "User-Agent": "Asterisk-AI-Voice-Agent/1.0",
+        "User-Agent": "AVA-FusionPBX/1.0",
     }
     if options.get("organization"):
         headers["OpenAI-Organization"] = options["organization"]
@@ -258,7 +258,7 @@ class OpenAISTTAdapter(STTComponent):
 
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "Asterisk-AI-Voice-Agent/1.0",
+            "User-Agent": "AVA-FusionPBX/1.0",
         }
 
         url = merged["stt_base_url"]

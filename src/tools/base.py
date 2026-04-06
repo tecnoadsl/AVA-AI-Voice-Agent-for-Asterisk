@@ -80,8 +80,8 @@ class ToolDefinition:
     output_variables: List[str] = field(default_factory=list)  # Pre-call: variables to inject into prompt
     timeout_ms: Optional[int] = None  # Per-tool timeout in milliseconds (phase tools)
     
-    # Pre-call hold audio (played via ARI if tool exceeds threshold)
-    hold_audio_file: Optional[str] = None  # Asterisk sound filename (e.g., "custom/please-wait")
+    # Pre-call hold audio (played via ESL if tool exceeds threshold)
+    hold_audio_file: Optional[str] = None  # FreeSWITCH sound filename (e.g., "custom/please-wait")
     hold_audio_threshold_ms: int = 500  # Play audio if tool takes longer than this (ms)
 
     def _strip_defaults(self, schema: Any) -> Any:

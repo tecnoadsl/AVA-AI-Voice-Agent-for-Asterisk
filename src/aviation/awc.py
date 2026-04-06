@@ -21,7 +21,7 @@ import time
 logger = logging.getLogger(__name__)
 
 AWC_AIRPORT_API = "https://aviationweather.gov/api/data/airport"
-AWC_USER_AGENT = "Asterisk-AI-Voice-Agent (+https://github.com/hkjarral/AVA-AI-Voice-Agent-for-Asterisk)"
+AWC_USER_AGENT = "AVA-FusionPBX (+https://github.com/tecnoadsl/AVA-FusionPBX)"
 
 _CACHE_LOCK = threading.Lock()
 _AIRPORT_CACHE: Dict[str, Tuple[float, Optional["AirportInfo"]]] = {}

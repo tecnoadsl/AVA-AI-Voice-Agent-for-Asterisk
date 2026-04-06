@@ -26,7 +26,7 @@ class ElevenLabsAgentConfig:
     enabled: bool = True
     capabilities: List[str] = field(default_factory=lambda: ["stt", "llm", "tts"])
     
-    # Audio input configuration (from Asterisk)
+    # Audio input configuration (from FreeSWITCH)
     input_encoding: str = "ulaw"  # μ-law from telephony
     input_sample_rate_hz: int = 8000
     

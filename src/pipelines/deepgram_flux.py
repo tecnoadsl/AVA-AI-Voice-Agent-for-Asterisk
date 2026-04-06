@@ -185,7 +185,7 @@ class DeepgramFluxSTTAdapter(STTComponent):
         
         headers = [
             ("Authorization", f"Token {api_key}"),
-            ("User-Agent", "Asterisk-AI-Voice-Agent/1.0"),
+            ("User-Agent", "AVA-FusionPBX/1.0"),
         ]
         
         try:

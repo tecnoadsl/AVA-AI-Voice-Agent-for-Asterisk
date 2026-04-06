@@ -634,7 +634,7 @@ class AzureSTTRealtimeAdapter(STTComponent):
         # We don't need intermediate results unless needed for UI, but engine expects just final right now
         # Actually Azure SDK yields both. We will catch "recognized" for final
         speech_config.output_format = speechsdk.OutputFormat.Detailed
-        # Configure Azure SDK VAD to be very aggressive (default 300ms) since Asterisk TalkDetect does the real VAD.
+        # Configure Azure SDK VAD to be very aggressive (default 300ms) since FreeSWITCH talk_detect does the real VAD.
         # This prevents 2+ seconds of latency waiting for Azure's internal silence timeout.
         timeout_ms = str(merged.get("vad_silence_timeout_ms", 300))
         speech_config.set_property(speechsdk.PropertyId.SpeechServiceConnection_EndSilenceTimeoutMs, timeout_ms)
@@ -864,7 +864,7 @@ class AzureTTSAdapter(TTSComponent):
         self._chunk_size_ms = int(self._pipeline_defaults.get("chunk_size_ms", provider_config.chunk_size_ms))
         # Public attribute: engine pipeline runner checks this to decide playback strategy.
         # Derived automatically from the 'streaming' flag so both sides of the pipeline
-        # (Azure HTTP fetch and Asterisk playback) are always in sync:
+        # (Azure HTTP fetch and FreeSWITCH playback) are always in sync:
         #   streaming=True  → download chunks AND play in real-time  → "stream"
         #   streaming=False → wait for full audio AND play as file   → "file"
         _use_streaming = bool(

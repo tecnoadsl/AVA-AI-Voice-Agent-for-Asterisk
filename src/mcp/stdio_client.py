@@ -61,7 +61,7 @@ class MCPStdioClient:
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "Asterisk-AI-Voice-Agent", "version": "dev"},
+                "clientInfo": {"name": "AVA-FusionPBX", "version": "dev"},
             },
         )
         await self.notify("initialized", {})

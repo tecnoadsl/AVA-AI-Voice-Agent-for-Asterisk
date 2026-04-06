@@ -1,8 +1,8 @@
-"""Async AudioSocket server for Asterisk AudioSocket integrations.
+"""Async AudioSocket server for FreeSWITCH mod_audiosocket integrations.
 
-This server implements the TLV protocol used by the Asterisk AudioSocket
+This server implements the TLV protocol used by the AudioSocket
 application.  It accepts inbound TCP connections, performs the mandatory UUID
-handshake, and streams bidirectional audio frames between Asterisk and the AI
+handshake, and streams bidirectional audio frames between FreeSWITCH and the AI
 engine.
 """
 

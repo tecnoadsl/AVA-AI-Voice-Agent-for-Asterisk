@@ -28,7 +28,7 @@ class PlaybackManager:
     
     Responsibilities:
     - Generate deterministic playback IDs
-    - Manage file lifecycle in /mnt/asterisk_media
+    - Manage file lifecycle in /mnt/freeswitch_media (or /mnt/asterisk_media for compat)
     - Handle token/refcount gating
     - Track active playbacks
     - Provide fallback mechanisms
@@ -48,11 +48,11 @@ class PlaybackManager:
         
         # Ensure media directory exists
         # Note: Directory should be set up with setgid bit by preflight.sh
-        # so files inherit group ownership from the directory (asterisk group)
+        # so files inherit group ownership from the directory (freeswitch group)
         try:
             os.makedirs(media_dir, exist_ok=True)
             try:
-                # Group-writable so asterisk group members can access
+                # Group-writable so freeswitch group members can access
                 os.chmod(media_dir, 0o775)
             except Exception:
                 pass
@@ -62,14 +62,14 @@ class PlaybackManager:
                 if str(media_dir).startswith(mount_root):
                     if not os.path.ismount(mount_root):
                         logger.warning(
-                            "Asterisk sounds volume does not appear to be mounted; file-based playback may fail",
+                            "FreeSWITCH sounds volume does not appear to be mounted; file-based playback may fail",
                             mount_root=mount_root,
                             media_dir=media_dir,
                             hint="Run: ./preflight.sh --apply-fixes  (then restart containers)",
                         )
                     elif not os.access(media_dir, os.W_OK):
                         logger.warning(
-                            "Asterisk media directory is not writable; file-based playback may fail",
+                            "FreeSWITCH media directory is not writable; file-based playback may fail",
                             media_dir=media_dir,
                             hint="Run: ./preflight.sh --apply-fixes  (then restart containers)",
                         )
@@ -196,7 +196,7 @@ class PlaybackManager:
     
     async def on_playback_finished(self, playback_id: str) -> bool:
         """
-        Handle PlaybackFinished event from Asterisk.
+        Handle PlaybackFinished event from FreeSWITCH.
         
         Args:
             playback_id: The playback ID that finished
@@ -302,9 +302,9 @@ class PlaybackManager:
             with open(file_path, 'wb') as f:
                 f.write(audio_bytes)
             
-            # Set file permissions for Asterisk readability via group
+            # Set file permissions for FreeSWITCH readability via group
             # Files inherit group ownership from setgid directory (set up by preflight.sh)
-            # No chown needed - appuser is member of asterisk group
+            # No chown needed - appuser is member of freeswitch group
             # Leave file permissions to host/umask; avoid chmod here (CodeQL).
             
             logger.debug("Audio file created",
@@ -328,7 +328,7 @@ class PlaybackManager:
         leaking TTS into ExternalMedia capture (which causes false barge-in triggers).
         """
         try:
-            # Create sound URI (remove .ulaw extension - Asterisk adds it)
+            # Create sound URI (remove .ulaw extension - FreeSWITCH adds it)
             sound_uri = f"sound:ai-generated/{os.path.basename(audio_file).replace('.ulaw', '')}"
 
             success = False
@@ -419,7 +419,7 @@ class PlaybackManager:
             audio_duration = audio_size / 8000.0  # seconds
             
             # Use longer safety margin for pipeline mode (file-based playback has more latency)
-            # Pipeline mode: Asterisk file loading + processing + event delivery = 0.8-1.8s typical
+            # Pipeline mode: FreeSWITCH file loading + processing + event delivery = 0.8-1.8s typical
             # Full agent mode: Streaming has lower latency, use shorter margin
             is_pipeline = playback_id.startswith("pipeline-")
             fallback_delay = audio_duration + (2.5 if is_pipeline else 0.5)  # safety margin

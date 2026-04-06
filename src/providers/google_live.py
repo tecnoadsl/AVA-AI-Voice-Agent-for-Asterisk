@@ -2,7 +2,7 @@
 Google Gemini Live API provider implementation.
 
 This module integrates Google's Gemini Live API (bidirectional streaming) into the
-Asterisk AI Voice Agent. Audio from AudioSocket is resampled to PCM16 @ 16 kHz,
+FusionPBX AI Voice Agent. Audio from AudioSocket is resampled to PCM16 @ 16 kHz,
 streamed to Gemini Live API, and PCM16 output is resampled to the configured
 downstream AudioSocket format (µ-law or PCM16 8 kHz).
 

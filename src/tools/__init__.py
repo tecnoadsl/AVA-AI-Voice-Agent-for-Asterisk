@@ -1,5 +1,5 @@
 """
-Tool calling system for Asterisk AI Voice Agent.
+Tool calling system for FusionPBX AI Voice Agent.
 
 This module provides a unified tool calling abstraction that works with
 multiple AI providers (Deepgram, OpenAI Realtime, Custom Pipelines).

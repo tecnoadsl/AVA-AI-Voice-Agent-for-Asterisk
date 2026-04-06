@@ -1,5 +1,5 @@
 """
-Google Calendar tool for Asterisk AI Voice Agent.
+Google Calendar tool for FusionPBX AI Voice Agent.
 
 Supports listing events, getting a single event, creating events, deleting events, and finding
 free appointment slots (with configurable duration and duration-aligned slot starts).
@@ -84,7 +84,7 @@ class GCalendarTool(Tool):
     """
     Generic tool for interacting with Google Calendar, extended with
     a custom slot availability calculator.
-    Compatible with Google Live/Vertex and OpenAI via Asterisk-AI-Voice-Agent.
+    Compatible with Google Live/Vertex and OpenAI via AVA-FusionPBX.
     """
 
     def __init__(self):

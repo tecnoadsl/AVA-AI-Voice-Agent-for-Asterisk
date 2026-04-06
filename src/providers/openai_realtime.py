@@ -2,7 +2,7 @@
 OpenAI Realtime provider implementation.
 
 This module integrates OpenAI's server-side Realtime WebSocket transport into the
-Asterisk AI Voice Agent without requiring WebRTC. Audio from AudioSocket is
+FusionPBX AI Voice Agent without requiring WebRTC. Audio from AudioSocket is
 upsampled to PCM16 @ 24 kHz, streamed to OpenAI, and PCM16 24 kHz output is
 resampled to the configured downstream AudioSocket format (µ-law or PCM16 8 kHz).
 """
