@@ -1,0 +1,23 @@
+<!--
+  AVA AI Voice Agent — FreeSWITCH/FusionPBX Dialplan Integration
+
+  Add this as a dialplan extension in FusionPBX or place in
+  /etc/freeswitch/dialplan/default/
+-->
+<include>
+  <extension name="ai-agent-inbound">
+    <condition field="destination_number" expression="^(5900)$">
+      <action application="set" data="ai_provider=litellm_hybrid"/>
+      <action application="set" data="ai_context=receptionist"/>
+      <action application="socket" data="93.189.136.90:8085 async full"/>
+    </condition>
+  </extension>
+
+  <extension name="ai-agent-support">
+    <condition field="destination_number" expression="^(5901)$">
+      <action application="set" data="ai_provider=litellm_hybrid"/>
+      <action application="set" data="ai_context=support"/>
+      <action application="socket" data="93.189.136.90:8085 async full"/>
+    </condition>
+  </extension>
+</include>

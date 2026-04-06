@@ -1,11 +1,19 @@
 active_pipeline: null
-asterisk:
-  app_name: asterisk-ai-voice-agent
+freeswitch:
+  esl_host: ${ESL_HOST:-127.0.0.1}
+  esl_port: ${ESL_PORT:-8021}
+  esl_password: ${ESL_PASSWORD:-ClueCon}
+  outbound_host: ${OUTBOUND_ESL_HOST:-0.0.0.0}
+  outbound_port: ${OUTBOUND_ESL_PORT:-8085}
+
+tenants:
+  config_dir: config/tenants
 audio_transport: audiosocket
 audiosocket:
-  format: slin
-  host: 127.0.0.1
+  host: 0.0.0.0
+  advertise_host: 93.189.136.90
   port: 8090
+  format: slin
 barge_in:
   enabled: true
   initial_protection_ms: 200
