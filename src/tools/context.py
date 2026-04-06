@@ -20,7 +20,7 @@ class ToolExecutionContext:
     Context provided to tools during execution.
     
     Contains all information and system access needed for a tool to execute,
-    including call metadata, session state, and system clients (ARI, etc.).
+    including call metadata, session state, and system clients (ESL, etc.).
     """
     
     # Call information
@@ -34,8 +34,10 @@ class ToolExecutionContext:
     
     # System access (injected by provider)
     session_store: Any = None  # SessionStore instance
-    ari_client: Any = None      # ARIClient instance
+    esl_client: Any = None       # ESLInboundClient instance (FreeSWITCH ESL)
     config: Any = None           # Config dict
+    domain_name: Optional[str] = None  # FusionPBX domain (e.g. "example.voip6.tecnoadsl.net")
+    outbound_call: Any = None    # Optional outbound call handle
     
     # Provider information
     provider_name: str = None  # "deepgram", "openai_realtime", "custom_pipeline"
@@ -190,7 +192,7 @@ class PreCallContext:
     
     # System access
     config: Any = None  # Config dict
-    ari_client: Any = None  # ARIClient instance (for hold audio playback)
+    esl_client: Any = None  # ESLInboundClient instance (for hold audio playback)
     
     def get_config_value(self, key: str, default: Any = None) -> Any:
         """Get configuration value with dot notation support."""

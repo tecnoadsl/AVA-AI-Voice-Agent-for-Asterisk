@@ -112,10 +112,10 @@ class MockToolContext:
     session_store: Dict[str, Any] = field(default_factory=dict)
     _session: Optional[MockSession] = field(default=None, repr=False)
 
-    def get_session(self) -> Optional[MockSession]:
+    async def get_session(self) -> Optional[MockSession]:
         return self._session
 
-    def update_session(self, **kwargs) -> None:
+    async def update_session(self, **kwargs) -> None:
         if self._session is None:
             self._session = MockSession()
         for k, v in kwargs.items():

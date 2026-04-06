@@ -252,46 +252,37 @@ class UnifiedTransferTool(Tool):
         description: str
     ) -> Dict[str, Any]:
         """
-        Transfer to a direct extension using ARI redirect.
-        Channel stays in Stasis, so cleanup waits naturally.
-        
+        Transfer to a direct extension via ESL uuid_transfer.
+
+        For FusionPBX the transfer target is sent within the tenant domain context.
+
         Args:
             context: Execution context
             extension: Extension number
             description: Human-readable description
-        
+
         Returns:
             Result dict
         """
-        logger.info("Extension transfer", call_id=context.call_id, 
+        logger.info("Extension transfer", call_id=context.call_id,
                    extension=extension, description=description)
-        
-        # Get dialplan context for extension transfers (default: from-internal for FreePBX)
-        config = context.get_config_value("tools.transfer") or {}
-        dialplan_context = config.get("extension_context", "from-internal")
-        
-        # Set transfer_active flag BEFORE continue() - this prevents cleanup
-        # from hanging up the caller when StasisEnd fires
+
+        domain = context.domain_name or "default"
+
+        # Set transfer_active flag BEFORE the transfer command
         await context.update_session(
             transfer_active=True,
             transfer_state="transferring",
             transfer_target=description
         )
-        
-        # Use ARI continue to transfer via dialplan (like queue/ringgroup transfers)
-        # This properly leaves Stasis and lets Asterisk dialplan handle the call
-        await context.ari_client.send_command(
-            method="POST",
-            resource=f"channels/{context.caller_channel_id}/continue",
-            params={
-                "context": dialplan_context,
-                "extension": extension,
-                "priority": 1
-            }
+
+        # ESL uuid_transfer within the FusionPBX domain context
+        await context.esl_client.transfer(
+            context.caller_channel_id, extension, context=domain
         )
-        
-        logger.info("✅ Extension transfer initiated", 
-                   call_id=context.call_id, extension=extension, context=dialplan_context)
+
+        logger.info("✅ Extension transfer initiated",
+                   call_id=context.call_id, extension=extension, domain=domain)
         return {
             "status": "success",
             "message": f"Transferring you to {description} now.",
@@ -306,42 +297,37 @@ class UnifiedTransferTool(Tool):
         description: str
     ) -> Dict[str, Any]:
         """
-        Transfer to a queue using ARI continue to FreePBX ext-queues context.
-        Channel leaves Stasis, so we must set transfer_active flag first.
-        
+        Transfer to a queue via ESL uuid_transfer.
+
+        In FusionPBX, FIFO queues are reached via fifo_orbit_{queue} in the domain context.
+
         Args:
             context: Execution context
             queue: Queue number/name
             description: Human-readable description
-        
+
         Returns:
             Result dict
         """
         logger.info("Queue transfer", call_id=context.call_id,
                    queue=queue, description=description)
-        
-        # Set transfer_active flag BEFORE continue() - this prevents cleanup
-        # from hanging up the caller when StasisEnd fires
+
+        domain = context.domain_name or "default"
+
         await context.update_session(
             transfer_active=True,
             transfer_state="in_queue",
             transfer_target=description
         )
-        
-        # Execute transfer to FreePBX ext-queues context
-        await context.ari_client.send_command(
-            method="POST",
-            resource=f"channels/{context.caller_channel_id}/continue",
-            params={
-                "context": "ext-queues",
-                "extension": queue,
-                "priority": 1
-            }
+
+        # FusionPBX FIFO queue destination
+        await context.esl_client.transfer(
+            context.caller_channel_id, f"fifo_orbit_{queue}", context=domain
         )
-        
-        logger.info("✅ Queue transfer initiated", call_id=context.call_id, 
+
+        logger.info("✅ Queue transfer initiated", call_id=context.call_id,
                    queue=queue)
-        
+
         return {
             "status": "success",
             "message": f"Transferring you to {description} now.",
@@ -356,42 +342,37 @@ class UnifiedTransferTool(Tool):
         description: str
     ) -> Dict[str, Any]:
         """
-        Transfer to a ring group using ARI continue to FreePBX ext-group context.
-        Channel leaves Stasis, so we must set transfer_active flag first.
-        
+        Transfer to a ring group via ESL uuid_transfer.
+
+        In FusionPBX, ring groups are dialplan extensions in the domain context.
+
         Args:
             context: Execution context
             ringgroup: Ring group number
             description: Human-readable description
-        
+
         Returns:
             Result dict
         """
         logger.info("Ring group transfer", call_id=context.call_id,
                    ringgroup=ringgroup, description=description)
-        
-        # Set transfer_active flag BEFORE continue() - this prevents cleanup
-        # from hanging up the caller when StasisEnd fires
+
+        domain = context.domain_name or "default"
+
         await context.update_session(
             transfer_active=True,
             transfer_state="in_ringgroup",
             transfer_target=description
         )
-        
-        # Execute transfer to FreePBX ext-group context
-        await context.ari_client.send_command(
-            method="POST",
-            resource=f"channels/{context.caller_channel_id}/continue",
-            params={
-                "context": "ext-group",
-                "extension": ringgroup,
-                "priority": 1
-            }
+
+        # Ring groups are regular dialplan extensions in FusionPBX
+        await context.esl_client.transfer(
+            context.caller_channel_id, ringgroup, context=domain
         )
-        
+
         logger.info("✅ Ring group transfer initiated", call_id=context.call_id,
                    ringgroup=ringgroup)
-        
+
         return {
             "status": "success",
             "message": f"Transferring you to {description} now.",
