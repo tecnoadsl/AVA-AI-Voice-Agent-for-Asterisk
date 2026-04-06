@@ -1,0 +1,9 @@
+domain: default
+provider: local
+language: en
+tts_voice: en_male
+context_prompt: >
+  You are an AI phone assistant. Be helpful and concise.
+greeting: "Hello, how can I help you?"
+transfer_extensions: {}
+voicemail_extension: "*99"

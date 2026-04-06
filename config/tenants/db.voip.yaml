@@ -1,0 +1,13 @@
+domain: db.voip
+provider: litellm_hybrid
+language: it
+tts_voice: it_male
+context_prompt: >
+  Sei l'assistente telefonico di Tecnoadsl. Rispondi in italiano.
+  Puoi trasferire le chiamate al reparto vendite o assistenza tecnica.
+greeting: "Buongiorno, sono l'assistente di Tecnoadsl. Come posso aiutarla?"
+transfer_extensions:
+  vendite: "1001"
+  assistenza: "1002"
+  amministrazione: "1003"
+voicemail_extension: "*99"

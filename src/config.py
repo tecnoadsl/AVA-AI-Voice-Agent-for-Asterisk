@@ -12,6 +12,9 @@ from typing import Dict, Any, Literal, Optional, List
 import re
 import structlog
 
+# FreeSWITCH config models — replaces AsteriskConfig for FusionPBX/FreeSWITCH deployments
+from src.config_freeswitch import FreeSWITCHConfig, TenantConfig, TenantResolver  # noqa: F401
+
 # Import configuration helpers (AAVA-40 refactor)
 from src.config.loaders import resolve_config_path, load_yaml_with_env_expansion, load_yaml_with_local_override
 from src.config.security import (
@@ -35,6 +38,9 @@ logger = structlog.get_logger(__name__)
 _PROJ_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+# AsteriskConfig is superseded by FreeSWITCHConfig from src.config_freeswitch
+# for FusionPBX/FreeSWITCH deployments. Kept here for backward compatibility
+# with legacy Asterisk ARI configs; new deployments should use FreeSWITCHConfig.
 class AsteriskConfig(BaseModel):
     host: str
     port: int = Field(default=8088)
