@@ -39,10 +39,23 @@ class OutboundCall:
         await self.conn.execute("hangup", cause)
         logger.info("Hung up call %s (%s)", self.uuid, cause)
 
+    async def start_audio_stream(self, ws_url: str):
+        """Start WebSocket audio streaming via mod_audio_stream."""
+        await self.conn.execute("audio_stream", f"{ws_url}/{self.uuid} mono 8000")
+        logger.info("Audio stream started for call %s -> %s", self.uuid, ws_url)
+
     async def start_audiosocket(self, host: str, port: int):
-        audiosocket_uri = f"{host}:{port}"
-        await self.conn.execute("playback", f"audiosocket:{self.uuid}:{audiosocket_uri}")
-        logger.info("AudioSocket started for call %s -> %s", self.uuid, audiosocket_uri)
+        """Deprecated: use start_audio_stream instead.
+
+        Kept for backwards compatibility with Asterisk AudioSocket dialplan.
+        Translates host/port into a WebSocket URL and delegates to
+        start_audio_stream.
+        """
+        logger.warning(
+            "start_audiosocket is deprecated; use start_audio_stream with a ws:// URL"
+        )
+        ws_url = f"ws://{host}:{port}"
+        await self.start_audio_stream(ws_url)
 
     async def playback(self, path: str):
         await self.conn.execute("playback", path)

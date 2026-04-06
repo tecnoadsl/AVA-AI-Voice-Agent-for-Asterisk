@@ -53,6 +53,7 @@ from .logging_config import get_logger, configure_logging
 # RTPServer removed — FreeSWITCH uses AudioSocket directly
 # from .rtp_server import RTPServer
 from .audio.audiosocket_server import AudioSocketServer
+from .audio.ws_audio_server import WSAudioServer
 from .audio.resampler import resample_audio
 from .providers.base import AIProviderInterface
 from .providers.deepgram import DeepgramProvider
@@ -5397,7 +5398,8 @@ class Engine:
             audiosocket_port = 8090
             if hasattr(self.config, "audiosocket") and self.config.audiosocket:
                 audiosocket_port = getattr(self.config.audiosocket, "port", 8090) or 8090
-            await call.start_audiosocket(audiosocket_host, int(audiosocket_port))
+            ws_url = f"ws://{audiosocket_host}:{audiosocket_port}"
+            await call.start_audio_stream(ws_url)
 
             logger.info(
                 "Inbound call setup complete",

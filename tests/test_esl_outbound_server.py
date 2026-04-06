@@ -51,14 +51,30 @@ async def test_outbound_call_answer():
 
 
 @pytest.mark.asyncio
-async def test_outbound_call_start_audiosocket():
+async def test_outbound_call_start_audio_stream():
+    """start_audio_stream should execute audio_stream with ws:// URL and UUID."""
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock(return_value=MagicMock(body="+OK"))
+    call = OutboundCall(conn=mock_conn, get_variable=AsyncMock(return_value=None))
+    call.uuid = "test-uuid"
+    await call.start_audio_stream("ws://93.189.136.90:8090")
+    args = mock_conn.execute.call_args[0]
+    assert args[0] == "audio_stream"
+    assert "test-uuid" in args[1]
+    assert "ws://93.189.136.90:8090" in args[1]
+
+
+@pytest.mark.asyncio
+async def test_outbound_call_start_audiosocket_deprecated():
+    """Deprecated start_audiosocket should delegate to start_audio_stream."""
     mock_conn = AsyncMock()
     mock_conn.execute = AsyncMock(return_value=MagicMock(body="+OK"))
     call = OutboundCall(conn=mock_conn, get_variable=AsyncMock(return_value=None))
     call.uuid = "test-uuid"
     await call.start_audiosocket("93.189.136.90", 8090)
     args = mock_conn.execute.call_args[0]
-    assert "audiosocket" in str(args).lower()
+    assert args[0] == "audio_stream"
+    assert "ws://93.189.136.90:8090" in args[1]
 
 
 @pytest.mark.asyncio
