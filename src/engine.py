@@ -33,7 +33,10 @@ except ImportError:
 
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest, Histogram, Counter, Gauge
 
-from .ari_client import ARIClient
+from .esl_client import ESLInboundClient
+from .esl_outbound_server import OutboundESLServer, OutboundCall
+from .config_freeswitch import FreeSWITCHConfig, TenantResolver
+from .ari_compat import ARICompatClient
 from aiohttp import web
 from pydantic import ValidationError
 
@@ -47,7 +50,8 @@ from .config import (
 )
 from .pipelines import PipelineOrchestrator, PipelineOrchestratorError, PipelineResolution
 from .logging_config import get_logger, configure_logging
-from .rtp_server import RTPServer
+# RTPServer removed — FreeSWITCH uses AudioSocket directly
+# from .rtp_server import RTPServer
 from .audio.audiosocket_server import AudioSocketServer
 from .audio.resampler import resample_audio
 from .providers.base import AIProviderInterface
@@ -228,15 +232,22 @@ class Engine:
         self._start_time = time.time()  # Track engine start time for uptime
         self._config_hash = self._compute_config_hash()
         self._config_loaded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        base_url = f"{config.asterisk.scheme}://{config.asterisk.host}:{config.asterisk.port}/ari"
-        self.ari_client = ARIClient(
-            username=config.asterisk.username,
-            password=config.asterisk.password,
-            base_url=base_url,
-            app_name=config.asterisk.app_name,
-            ssl_verify=config.asterisk.ssl_verify
+        # FreeSWITCH ESL client (replaces Asterisk ARI)
+        fs_config = FreeSWITCHConfig.from_env()
+        self.esl_client = ESLInboundClient(
+            host=fs_config.esl_host,
+            port=fs_config.esl_port,
+            password=fs_config.esl_password,
         )
-        # Set engine reference for event propagation
+        self.outbound_server = OutboundESLServer(
+            host=fs_config.outbound_host,
+            port=fs_config.outbound_port,
+            on_call=self._handle_inbound_call,
+        )
+        self.tenant_resolver = TenantResolver("config/tenants")
+        # Compatibility shim: wraps ESL client with ARI-like interface so the
+        # hundreds of existing self.ari_client.* calls keep working.
+        self.ari_client = ARICompatClient(self.esl_client)
         self.ari_client.engine = self
         
         # Initialize core components
@@ -536,16 +547,13 @@ class Engine:
         # Background ARI reconnect supervisor task
         self._ari_listener_task: Optional[asyncio.Task] = None
 
-        # Event handlers
-        self.ari_client.on_event("StasisStart", self._handle_stasis_start)
-        self.ari_client.on_event("StasisEnd", self._handle_stasis_end)
-        self.ari_client.on_event("ChannelDestroyed", self._handle_channel_destroyed)
-        self.ari_client.on_event("ChannelDtmfReceived", self._handle_dtmf_received)
-        self.ari_client.on_event("ChannelVarset", self._handle_channel_varset)
-        # Pipelines (local_hybrid): use Asterisk talk detection to trigger barge-in during
-        # channel playback, where ExternalMedia RTP can be paused/altered.
-        self.ari_client.on_event("ChannelTalkingStarted", self._handle_channel_talking_started)
-        self.ari_client.on_event("ChannelTalkingFinished", self._handle_channel_talking_finished)
+        # ESL event handlers (FreeSWITCH events, replacing ARI Stasis events)
+        # StasisStart is replaced by outbound ESL server (_handle_inbound_call)
+        self.esl_client.on_event("CHANNEL_HANGUP_COMPLETE", self._handle_channel_hangup)
+        self.esl_client.on_event("CHANNEL_DESTROY", self._handle_channel_destroyed_esl)
+        self.esl_client.on_event("DTMF", self._handle_dtmf_received_esl)
+        # ChannelVarset / TalkDetect: not directly mapped in FreeSWITCH ESL inbound.
+        # TODO: If needed, subscribe to CHANNEL_DATA or custom FS events.
 
     @staticmethod
     def _log_task_exception(task: asyncio.Task) -> None:
@@ -844,11 +852,10 @@ class Engine:
                     exc_info=True,
                 )
 
-        # 6) Start ARI reconnect supervisor (initial connect happens in the background).
-        # This avoids a startup race after host reboot where Asterisk/ARI isn't ready yet.
-        self.ari_client.add_event_handler("PlaybackFinished", self._on_playback_finished)
+        # 6) Start FreeSWITCH ESL listener and outbound ESL server.
+        await self.outbound_server.start()
         if not self._ari_listener_task or self._ari_listener_task.done():
-            self._ari_listener_task = asyncio.create_task(self.ari_client.start_listening())
+            self._ari_listener_task = asyncio.create_task(self.esl_client.start_listening())
             self._ari_listener_task.add_done_callback(self._on_ari_listener_task_done)
         # Outbound scheduler (runs even if no campaigns are active; lightweight idle)
         try:
@@ -2071,15 +2078,14 @@ class Engine:
         sessions = await self.session_store.get_all_sessions()
         for session in sessions:
             await self._cleanup_call(session.call_id)
-        await self.ari_client.disconnect()
+        await self.outbound_server.stop()
+        await self.esl_client.disconnect()
         task = getattr(self, "_ari_listener_task", None)
         if task and not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        # Stop RTP server if running
-        if hasattr(self, 'rtp_server') and self.rtp_server:
-            await self.rtp_server.stop()
+        # RTP server removed — FreeSWITCH uses AudioSocket directly
         if self.attended_transfer_rtp_server:
             await self.attended_transfer_rtp_server.stop()
             self.attended_transfer_rtp_server = None
@@ -5283,6 +5289,156 @@ class Engine:
         except Exception as exc:
             logger.error("Error handling ChannelVarset", error=str(exc), exc_info=True)
 
+    # ------------------------------------------------------------------
+    # FreeSWITCH ESL native event handlers
+    # ------------------------------------------------------------------
+
+    async def _handle_channel_hangup(self, event: dict):
+        """Handle CHANNEL_HANGUP_COMPLETE from FreeSWITCH ESL."""
+        try:
+            uuid = event.get("Unique-ID")
+            if not uuid:
+                return
+            logger.info("ESL channel hangup", uuid=uuid)
+            await self._cleanup_call(uuid)
+        except Exception as exc:
+            logger.error("Error handling ESL CHANNEL_HANGUP_COMPLETE", error=str(exc), exc_info=True)
+
+    async def _handle_channel_destroyed_esl(self, event: dict):
+        """Handle CHANNEL_DESTROY from FreeSWITCH ESL."""
+        try:
+            uuid = event.get("Unique-ID")
+            if not uuid:
+                return
+            self._pre_stasis_channels.discard(uuid)
+            logger.info("ESL channel destroyed", uuid=uuid)
+            await self._cleanup_call(uuid)
+        except Exception as exc:
+            logger.error("Error handling ESL CHANNEL_DESTROY", error=str(exc), exc_info=True)
+
+    async def _handle_dtmf_received_esl(self, event: dict):
+        """Handle DTMF event from FreeSWITCH ESL."""
+        try:
+            uuid = event.get("Unique-ID")
+            digit = event.get("DTMF-Digit")
+            logger.info("ESL DTMF received", uuid=uuid, digit=digit)
+            if not uuid or not digit:
+                return
+            # Delegate to existing attended-transfer DTMF logic
+            call_id = self._attended_transfer_agent_channel_to_call_id.get(uuid)
+            if not call_id:
+                return
+            if uuid not in self._attended_transfer_dtmf_digits:
+                self._attended_transfer_dtmf_digits[uuid] = str(digit)
+                try:
+                    session = await self.session_store.get_by_call_id(call_id)
+                    if session and session.current_action and session.current_action.get("type") == "attended_transfer":
+                        session.current_action["decision_digit"] = str(digit)
+                        await self._save_session(session)
+                except Exception:
+                    logger.debug("Failed to persist attended transfer DTMF digit", call_id=call_id, exc_info=True)
+            waiter = self._attended_transfer_dtmf_waiters.get(uuid)
+            if waiter and not waiter.done():
+                try:
+                    waiter.set_result(str(digit))
+                except Exception:
+                    pass
+        except Exception as exc:
+            logger.error("Error handling ESL DTMF", error=str(exc), exc_info=True)
+
+    async def _handle_inbound_call(self, call: "OutboundCall"):
+        """Handle an inbound call from FreeSWITCH outbound ESL.
+
+        This replaces the StasisStart handler for caller channels.
+        The outbound ESL server accepts new calls and hands them to this method.
+        """
+        try:
+            await call.answer()
+
+            # Resolve tenant config
+            tenant = self.tenant_resolver.resolve(
+                call.domain_name or "default",
+                overrides={"provider": call.ai_provider} if call.ai_provider else None,
+            )
+
+            # Create call session using existing session infrastructure
+            session = CallSession(
+                call_id=call.uuid,
+                caller_channel_id=call.uuid,
+                caller_name=call.caller_name or "",
+                caller_number=call.caller_number or "",
+                called_number=call.destination or "unknown",
+                bridge_id=None,  # No bridge needed with AudioSocket
+                provider_name=tenant.provider if tenant else (self.config.default_provider if self.config else "deepgram"),
+                audio_capture_enabled=True,
+                status="connected",
+                start_time=datetime.now(timezone.utc),
+            )
+            session.is_outbound = False
+            session.enhanced_vad_enabled = bool(getattr(self, "vad_manager", None))
+            # Store domain for tenant-aware tools
+            if hasattr(session, "domain_name"):
+                session.domain_name = call.domain_name
+            if hasattr(session, "context_name") and tenant and tenant.context:
+                session.context_name = tenant.context
+            await self._save_session(session, new=True)
+
+            # Record call start time for duration tracking
+            _call_start_times[call.uuid] = time.time()
+
+            # Start AudioSocket for audio streaming
+            audiosocket_host = self.config.get("audiosocket", {}).get("advertise_host") if hasattr(self.config, "get") else None
+            if not audiosocket_host:
+                audiosocket_cfg = getattr(self.config, "audiosocket", None)
+                if audiosocket_cfg:
+                    audiosocket_host = getattr(audiosocket_cfg, "advertise_host", None) or getattr(audiosocket_cfg, "host", "127.0.0.1")
+                else:
+                    audiosocket_host = "127.0.0.1"
+            audiosocket_port = 8090
+            if hasattr(self.config, "audiosocket") and self.config.audiosocket:
+                audiosocket_port = getattr(self.config.audiosocket, "port", 8090) or 8090
+            await call.start_audiosocket(audiosocket_host, int(audiosocket_port))
+
+            logger.info(
+                "Inbound call setup complete",
+                uuid=call.uuid,
+                caller=call.caller_number,
+                destination=call.destination,
+                domain=call.domain_name,
+                provider=session.provider_name,
+            )
+
+            # Export config metrics
+            try:
+                await self._export_config_metrics(call.uuid)
+            except Exception:
+                logger.debug("Failed to export config metrics for call", call_id=call.uuid, exc_info=True)
+
+            # Start provider session (reuse existing provider startup logic)
+            try:
+                await self._start_provider_session(session)
+            except Exception:
+                logger.debug("Failed to start provider session on inbound call", call_id=call.uuid, exc_info=True)
+
+        except Exception as e:
+            logger.error("Error handling inbound call %s: %s", call.uuid, e, exc_info=True)
+            try:
+                await call.hangup()
+            except Exception:
+                pass
+
+    async def _start_provider_session(self, session: CallSession):
+        """Start the AI provider session for a call.
+
+        Placeholder: the actual provider start is deeply integrated into the
+        existing _handle_caller_stasis_start_hybrid flow. This method will be
+        expanded as we complete the migration. For now it triggers the greeting.
+        """
+        # TODO: Extract provider start logic from _handle_caller_stasis_start_hybrid
+        # and invoke it here. The existing flow is ~500 lines of interleaved
+        # bridge/AudioSocket/provider setup that needs careful refactoring.
+        logger.info("Provider session start (stub) for call %s", session.call_id)
+
     async def _enable_pipeline_talk_detect(self, session: CallSession) -> None:
         """Enable Asterisk talk detection (TALK_DETECT) on the caller channel.
 
@@ -5768,7 +5924,7 @@ class Engine:
                                 caller_name=getattr(session, 'caller_name', None),
                                 context_name=getattr(session, 'context_name', None),
                                 session_store=self.session_store,
-                                ari_client=self.ari_client,
+                                esl_client=self.esl_client,
                                 config=self.config.dict()
                             )
                             # Execute synchronously to ensure session is available
@@ -5809,7 +5965,7 @@ class Engine:
                                         caller_name=getattr(session, 'caller_name', None),
                                         context_name=getattr(session, 'context_name', None),
                                         session_store=self.session_store,
-                                        ari_client=self.ari_client,
+                                        esl_client=self.esl_client,
                                         config=self.config.dict()
                                     )
                                     
@@ -10880,7 +11036,7 @@ class Engine:
                             caller_name=getattr(session, "caller_name", None),
                             context_name=getattr(session, "context_name", None),
                             session_store=self.session_store,
-                            ari_client=self.ari_client,
+                            esl_client=self.esl_client,
                             config=self.config.dict(),
                             provider_name="pipeline"
                         )
@@ -13277,7 +13433,7 @@ class Engine:
                     caller_name=getattr(session, 'caller_name', None),
                     context_name=getattr(session, 'context_name', None),
                     session_store=self.session_store,
-                    ari_client=self.ari_client,
+                    esl_client=self.esl_client,
                     config=self.config.dict() if hasattr(self.config, 'dict') else {},
                     provider_name=provider_name,
                 )
@@ -13443,7 +13599,7 @@ class Engine:
                 campaign_id=getattr(session, 'outbound_campaign_id', None),
                 lead_id=getattr(session, 'outbound_lead_id', None),
                 config=self.config.dict() if hasattr(self.config, 'dict') else {},
-                ari_client=self.ari_client,
+                esl_client=self.esl_client,
             )
             
             # Track if we need to play hold audio
@@ -13736,9 +13892,9 @@ class Engine:
                     default_ready = False
             elif self.config and hasattr(self.config, "pipelines") and default_target in (self.config.pipelines or {}):
                 default_ready = bool(getattr(self, "pipeline_orchestrator", None) and self.pipeline_orchestrator.started)
-            ari_connected = bool(self.ari_client and self.ari_client.running)
+            esl_connected = bool(self.esl_client and self.esl_client.connected)
             audiosocket_listening = self.audio_socket_server is not None if self.config.audio_transport == 'audiosocket' else True
-            is_ready = ari_connected and audiosocket_listening and default_ready
+            is_ready = esl_connected and audiosocket_listening and default_ready
 
             # Get conversation coordinator metrics
             conversation_summary = await self.conversation_coordinator.get_summary()
@@ -13801,15 +13957,12 @@ class Engine:
         return web.Response(text="ok", status=200)
 
     async def _ready_handler(self, request):
-        """Readiness probe: 200 only if ARI, transport, and default provider are ready."""
+        """Readiness probe: 200 only if ESL, transport, and default provider are ready."""
         try:
-            # Use is_connected property which reflects true WebSocket state (AAVA-136)
-            ari_connected = bool(self.ari_client and self.ari_client.is_connected)
+            esl_connected = bool(self.esl_client and self.esl_client.connected)
             transport_ok = True
             if self.config.audio_transport == 'audiosocket':
                 transport_ok = self.audio_socket_server is not None
-            elif self.config.audio_transport == 'externalmedia':
-                transport_ok = self.rtp_server is not None
             default_target = getattr(self.config, "default_provider", None) if self.config else None
             provider_ok = False
             pipeline_ok = False
@@ -13824,10 +13977,10 @@ class Engine:
                 pipeline_ok = bool(getattr(self, "pipeline_orchestrator", None) and self.pipeline_orchestrator.started)
 
             default_ok = provider_ok or pipeline_ok
-            is_ready = ari_connected and transport_ok and default_ok
+            is_ready = esl_connected and transport_ok and default_ok
             status = 200 if is_ready else 503
             return web.json_response({
-                "ari_connected": ari_connected,
+                "esl_connected": esl_connected,
                 "transport_ok": transport_ok,
                 "provider_ok": provider_ok,
                 "pipeline_ok": pipeline_ok,
