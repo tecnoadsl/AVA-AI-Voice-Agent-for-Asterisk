@@ -52,6 +52,10 @@ from .pipelines import PipelineOrchestrator, PipelineOrchestratorError, Pipeline
 from .logging_config import get_logger, configure_logging
 # RTPServer removed — FreeSWITCH uses AudioSocket directly
 # from .rtp_server import RTPServer
+try:
+    from .rtp_server import RTPServer
+except ImportError:
+    RTPServer = None  # type: ignore[misc,assignment]
 from .audio.audiosocket_server import AudioSocketServer
 from .audio.ws_audio_server import WSAudioServer
 from .audio.resampler import resample_audio
@@ -679,35 +683,40 @@ class Engine:
 
                 host = self.config.audiosocket.host
                 port = self.config.audiosocket.port
-                self.audio_socket_server = AudioSocketServer(
-                    host=host,
-                    port=port,
-                    on_uuid=self._audiosocket_handle_uuid,
-                    on_audio=self._audiosocket_handle_audio,
-                    on_disconnect=self._audiosocket_handle_disconnect,
-                    on_dtmf=self._audiosocket_handle_dtmf,
-                )
-                await self.audio_socket_server.start()
-                logger.info("AudioSocket server listening", host=host, port=port)
-                # Configure streaming manager with AudioSocket format expected by dialplan
+
                 as_format = None
                 try:
                     if self.config.audiosocket and hasattr(self.config.audiosocket, 'format'):
                         as_format = self.config.audiosocket.format
                 except Exception:
                     as_format = None
+
+                # Use WSAudioServer for FreeSWITCH mod_audio_stream (WebSocket)
+                # mod_audio_stream v1.0.3 (commercial) supports bidirectional audio:
+                # - Inbound: binary WebSocket frames (PCM from FreeSWITCH)
+                # - Outbound: JSON streamAudio messages (base64 audio to FreeSWITCH)
+                async def _ws_on_connect(uuid):
+                    return await self._audiosocket_handle_uuid(uuid, uuid)
+
+                self.audio_socket_server = WSAudioServer(
+                    host=host,
+                    port=port,
+                    on_connect=_ws_on_connect,
+                    on_audio=self._audiosocket_handle_audio,
+                    on_disconnect=self._audiosocket_handle_disconnect,
+                    sample_rate=16000,
+                )
+                await self.audio_socket_server.start()
+                logger.info("WebSocket audio server listening (mod_audio_stream)", host=host, port=port)
+
+                # Configure streaming manager — audio flows via WebSocket directly
                 self.streaming_playback_manager.set_transport(
                     audio_transport=self.config.audio_transport,
                     audiosocket_server=self.audio_socket_server,
                     audiosocket_format=as_format,
                 )
-                # Pre-call transport summary and alignment audit
-                try:
-                    self._audit_transport_alignment()
-                except Exception:
-                    logger.debug("Transport alignment audit failed", exc_info=True)
             except Exception as exc:
-                logger.error("Failed to start AudioSocket transport", error=str(exc), exc_info=True)
+                logger.error("Failed to start WebSocket audio transport", error=str(exc), exc_info=True)
                 self.audio_socket_server = None
 
         # 5) Prepare RTP server for ExternalMedia transport (guarded)
@@ -5368,7 +5377,7 @@ class Engine:
                 caller_channel_id=call.uuid,
                 caller_name=call.caller_name or "",
                 caller_number=call.caller_number or "",
-                called_number=call.destination or "unknown",
+                called_number=call.called_number or "unknown",
                 bridge_id=None,  # No bridge needed with AudioSocket
                 provider_name=tenant.provider if tenant else (self.config.default_provider if self.config else "deepgram"),
                 audio_capture_enabled=True,
@@ -5380,8 +5389,8 @@ class Engine:
             # Store domain for tenant-aware tools
             if hasattr(session, "domain_name"):
                 session.domain_name = call.domain_name
-            if hasattr(session, "context_name") and tenant and tenant.context:
-                session.context_name = tenant.context
+            if hasattr(session, "context_name") and tenant and getattr(tenant, "context", None):
+                session.context_name = getattr(tenant, "context", None)
             await self._save_session(session, new=True)
 
             # Record call start time for duration tracking
@@ -5405,7 +5414,7 @@ class Engine:
                 "Inbound call setup complete",
                 uuid=call.uuid,
                 caller=call.caller_number,
-                destination=call.destination,
+                destination=call.called_number,
                 domain=call.domain_name,
                 provider=session.provider_name,
             )
@@ -5418,7 +5427,7 @@ class Engine:
 
             # Start provider session (reuse existing provider startup logic)
             try:
-                await self._start_provider_session(session)
+                await self._ensure_provider_session_started(session.call_id)
             except Exception:
                 logger.debug("Failed to start provider session on inbound call", call_id=call.uuid, exc_info=True)
 
@@ -5428,18 +5437,6 @@ class Engine:
                 await call.hangup()
             except Exception:
                 pass
-
-    async def _start_provider_session(self, session: CallSession):
-        """Start the AI provider session for a call.
-
-        Placeholder: the actual provider start is deeply integrated into the
-        existing _handle_caller_stasis_start_hybrid flow. This method will be
-        expanded as we complete the migration. For now it triggers the greeting.
-        """
-        # TODO: Extract provider start logic from _handle_caller_stasis_start_hybrid
-        # and invoke it here. The existing flow is ~500 lines of interleaved
-        # bridge/AudioSocket/provider setup that needs careful refactoring.
-        logger.info("Provider session start (stub) for call %s", session.call_id)
 
     async def _enable_pipeline_talk_detect(self, session: CallSession) -> None:
         """Enable Asterisk talk detection (TALK_DETECT) on the caller channel.
