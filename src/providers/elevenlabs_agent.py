@@ -148,17 +148,24 @@ class ElevenLabsAgentProvider(AIProviderInterface, ProviderCapabilitiesMixin):
         
         # Get API key from config or environment
         api_key = self.config.api_key or os.getenv("ELEVENLABS_API_KEY", "")
-        if not api_key:
-            raise ValueError("ELEVENLABS_API_KEY not configured")
-        
         agent_id = self.config.agent_id or os.getenv("ELEVENLABS_AGENT_ID", "")
         if not agent_id:
             raise ValueError("ELEVENLABS_AGENT_ID not configured")
-        
+
         logger.info(f"[elevenlabs] [{call_id}] Connecting to ElevenLabs Conversational AI...")
-        
-        # For authenticated agents, get a signed URL first
-        signed_url = await self._get_signed_url(api_key, agent_id, call_id)
+
+        # Try signed URL first (requires API key with convai_write permission),
+        # fall back to direct agent_id connection (public agents, no API key needed).
+        signed_url = None
+        if api_key:
+            try:
+                signed_url = await self._get_signed_url(api_key, agent_id, call_id)
+            except Exception as e:
+                logger.warning(f"[elevenlabs] [{call_id}] Signed URL failed ({e}), using direct connection")
+
+        if not signed_url:
+            signed_url = f"{self.CONVAI_WS_URL}?agent_id={agent_id}"
+            logger.info(f"[elevenlabs] [{call_id}] Using direct agent connection")
         
         try:
             self._ws = await asyncio.wait_for(
