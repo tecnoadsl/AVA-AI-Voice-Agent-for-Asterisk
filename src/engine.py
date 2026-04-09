@@ -13954,6 +13954,7 @@ class Engine:
             payload = {
                 "status": "healthy" if is_ready else "degraded",
                 "esl_connected": esl_connected,
+                "ari_connected": esl_connected or audiosocket_listening,  # GUI compat
                 "rtp_server_running": bool(getattr(self, 'rtp_server', None)),
                 "audio_transport": self.config.audio_transport,
                 "active_calls": len(active_sessions),
