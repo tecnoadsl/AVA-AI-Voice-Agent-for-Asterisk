@@ -13938,7 +13938,8 @@ class Engine:
                 default_ready = bool(getattr(self, "pipeline_orchestrator", None) and self.pipeline_orchestrator.started)
             esl_connected = bool(self.esl_client and self.esl_client.connected)
             audiosocket_listening = self.audio_socket_server is not None if self.config.audio_transport == 'audiosocket' else True
-            is_ready = esl_connected and audiosocket_listening and default_ready
+            # ESL is optional — mod_audio_stream direct connections work without it
+            is_ready = audiosocket_listening and default_ready
 
             # Get conversation coordinator metrics
             conversation_summary = await self.conversation_coordinator.get_summary()
@@ -13952,12 +13953,11 @@ class Engine:
             
             payload = {
                 "status": "healthy" if is_ready else "degraded",
-                "ari_connected": ari_connected,
+                "esl_connected": esl_connected,
                 "rtp_server_running": bool(getattr(self, 'rtp_server', None)),
                 "audio_transport": self.config.audio_transport,
                 "active_calls": len(active_sessions),
                 "active_sessions": len(active_sessions),
-                "asterisk_channels": len(self._pre_stasis_channels) + len(active_sessions),  # Pre-stasis + in-stasis
                 "pending_timers": pending_timers,
                 "uptime_seconds": uptime_seconds,
                 "active_playbacks": 0,
