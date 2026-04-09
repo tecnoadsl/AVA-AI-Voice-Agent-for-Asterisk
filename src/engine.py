@@ -6422,12 +6422,37 @@ class Engine:
                         break
 
             if not caller_channel_id:
-                logger.warning(
-                    "AudioSocket UUID not recognized",
+                # mod_audio_stream direct connection (no ESL outbound).
+                # Create session on-the-fly so the call can be processed.
+                caller_channel_id = uuid_str
+                self.uuidext_to_channel[uuid_str] = caller_channel_id
+
+                tenant = self.tenant_resolver.resolve("default") if hasattr(self, "tenant_resolver") else None
+                provider_name = (tenant.provider if tenant else None) or getattr(self.config, "default_provider", "elevenlabs_agent")
+                session = CallSession(
+                    call_id=caller_channel_id,
+                    caller_channel_id=caller_channel_id,
+                    caller_name="",
+                    caller_number="unknown",
+                    called_number="9999",
+                    bridge_id=None,
+                    provider_name=provider_name,
+                    audio_capture_enabled=True,
+                    status="connected",
+                    start_time=datetime.now(timezone.utc),
+                )
+                session.is_outbound = False
+                if hasattr(session, "context_name") and tenant and getattr(tenant, "context", None):
+                    session.context_name = getattr(tenant, "context", None)
+                await self._save_session(session, new=True)
+                _call_start_times[caller_channel_id] = time.time()
+
+                logger.info(
+                    "Auto-created session for mod_audio_stream connection",
                     conn_id=conn_id,
                     uuid=uuid_str,
+                    provider=provider_name,
                 )
-                return False
 
             # Track mappings
             self.conn_to_channel[conn_id] = caller_channel_id
