@@ -41,6 +41,7 @@ class WSAudioServer:
         self.sample_rate = sample_rate
         self._server = None
         self._connections: Dict[str, WebSocketServerProtocol] = {}
+        self._pending_uuids: list = []
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -73,9 +74,15 @@ class WSAudioServer:
         uuid = self._extract_uuid(path)
 
         if not uuid:
-            logger.warning("WS connection without UUID, closing")
-            await websocket.close(1008, "UUID required")
-            return
+            if self._pending_uuids:
+                uuid = self._pending_uuids.pop(0)
+                logger.info("WS connection matched to pending UUID %s", uuid)
+            else:
+                # Generate a temporary UUID; mod_audio_stream may send the
+                # real channel UUID as a JSON text frame later.
+                import uuid as _uuid_mod
+                uuid = str(_uuid_mod.uuid4())
+                logger.info("WS connection without UUID, assigned %s", uuid)
 
         logger.info("WS audio connection from UUID %s", uuid)
 
@@ -141,6 +148,12 @@ class WSAudioServer:
         ws = self._connections.get(uuid)
         if ws:
             await ws.close()
+
+    def expect_connection(self, uuid: str) -> None:
+        """Register a UUID that we expect a WebSocket connection for."""
+        if uuid not in self._pending_uuids:
+            self._pending_uuids.append(uuid)
+            logger.debug("Expecting WS connection for UUID %s", uuid)
 
     def get_connection_count(self) -> int:
         """Return number of active WebSocket connections."""
