@@ -11,9 +11,9 @@ tenants:
 audio_transport: audiosocket
 audiosocket:
   host: 0.0.0.0
-  advertise_host: 93.189.136.90
+  advertise_host: 127.0.0.1
   port: 8090
-  format: slin
+  format: pcm16
 barge_in:
   enabled: true
   initial_protection_ms: 200
@@ -39,16 +39,12 @@ config_version: 6
 farewell_hangup_delay_sec: 3
 contexts:
   default:
-    greeting: Hello
+    greeting: Buongiorno, sono l assistente di Tecnoadsl. Come posso aiutarla?
     profile: telephony_ulaw_8k
     prompt: >-
-      You are Asterisk, an AI Assistant. Be helpful and concise.
-
-
-      CALL ENDING:
-      - When the caller indicates they are done, say a brief farewell, then use the hangup_call tool to end the call.
-      - NEVER mention tools or the word "hangup_call" to the caller.
-    provider: local
+      Sei l assistente telefonico di TecnoADSL. Rispondi SOLO in italiano.
+      Dai del Lei. Risposte brevi, massimo 2 frasi.
+    provider: elevenlabs_agent
     tools:
       - hangup_call
   Tool_Example:
@@ -1592,7 +1588,8 @@ providers:
     voice: alloy
   elevenlabs_agent:
     type: full
-    enabled: false
+    enabled: true
+    agent_id: ${ELEVENLABS_AGENT_ID}
     capabilities:
       - stt
       - llm
