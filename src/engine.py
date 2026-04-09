@@ -9105,6 +9105,26 @@ class Engine:
                 chunk: bytes = event.get("data") or b""
                 if not chunk:
                     return
+
+                # mod_audio_stream direct path: send audio directly to WebSocket
+                # without going through streaming_playback_manager pacing.
+                # mod_audio_stream v1.0.3 handles playback pacing internally.
+                if self.audio_socket_server and isinstance(self.audio_socket_server, WSAudioServer):
+                    conn_id = self.channel_to_conn.get(call_id, call_id)
+                    # Ensure audio is PCM16 16kHz (what mod_audio_stream expects)
+                    encoding = event.get("encoding", "")
+                    sample_rate = event.get("sample_rate", 16000)
+                    out = chunk
+                    # Convert ulaw to PCM16 if needed
+                    if encoding in ("ulaw", "mulaw"):
+                        out = audioop.ulaw2lin(out, 2)
+                    # Resample to 16kHz if needed
+                    if sample_rate and sample_rate != 16000:
+                        state = self._resample_state_provider_out.get(call_id)
+                        out, state = resample_audio(out, sample_rate, 16000, state=state)
+                        self._resample_state_provider_out[call_id] = state
+                    await self.audio_socket_server.send_audio(conn_id, out)
+                    return
                 # If barge-in fired, suppress provider audio locally for a short window so streaming
                 # doesn't immediately restart with the remainder of the previous sentence.
                 try:
