@@ -251,3 +251,41 @@ async def test_handle_connection_calls_on_disconnect():
     await server._handle_connection(mock_ws, "/some-uuid")
 
     on_disconnect.assert_awaited_once_with("some-uuid")
+
+
+# ---------------------------------------------------------------------------
+# get_connection_count
+# ---------------------------------------------------------------------------
+
+
+def test_get_connection_count_empty():
+    server = _make_server()
+    assert server.get_connection_count() == 0
+
+
+def test_get_connection_count_with_connections():
+    server = _make_server()
+    server._connections["uuid-1"] = MagicMock()
+    server._connections["uuid-2"] = MagicMock()
+    assert server.get_connection_count() == 2
+
+
+# ---------------------------------------------------------------------------
+# disconnect
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_disconnect_existing():
+    server = _make_server()
+    mock_ws = AsyncMock()
+    server._connections["uuid-1"] = mock_ws
+    await server.disconnect("uuid-1")
+    mock_ws.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_nonexistent():
+    """Disconnecting an unknown UUID must not raise."""
+    server = _make_server()
+    await server.disconnect("no-such-uuid")

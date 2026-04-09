@@ -48,7 +48,8 @@ class WSAudioServer:
 
     async def start(self) -> None:
         self._server = await websockets.serve(
-            self._handle_connection, self.host, self.port
+            self._handle_connection, self.host, self.port,
+            compression=None,  # Disable permessage-deflate; mod_audio_stream IXWebSocket may misbehave with it
         )
         logger.info("WS Audio server listening on ws://%s:%d", self.host, self.port)
 
@@ -65,6 +66,10 @@ class WSAudioServer:
     async def _handle_connection(
         self, websocket: WebSocketServerProtocol, path: str = "/"
     ) -> None:
+        # websockets >= 14 no longer passes `path` as second arg;
+        # retrieve it from the request object when available.
+        if path == "/" and hasattr(websocket, "request") and websocket.request:
+            path = getattr(websocket.request, "path", path)
         uuid = self._extract_uuid(path)
 
         if not uuid:
@@ -136,6 +141,14 @@ class WSAudioServer:
         ws = self._connections.get(uuid)
         if ws:
             await ws.close()
+
+    def get_connection_count(self) -> int:
+        """Return number of active WebSocket connections."""
+        return len(self._connections)
+
+    async def disconnect(self, uuid: str) -> None:
+        """Close the WebSocket for a given UUID (alias for close_connection)."""
+        await self.close_connection(uuid)
 
     # ------------------------------------------------------------------
     # Helpers
