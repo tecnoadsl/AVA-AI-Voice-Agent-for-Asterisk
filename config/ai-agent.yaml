@@ -13,7 +13,7 @@ audiosocket:
   host: 0.0.0.0
   advertise_host: 127.0.0.1
   port: 8090
-  format: pcm16
+  format: slin
 barge_in:
   enabled: true
   initial_protection_ms: 200
